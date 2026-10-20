@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AttendEdge · Smart Attendance Management</title>
+<meta name="description" content="AttendEdge: faculty-only attendance dashboard prototype (simulated data, simulated scanner).">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='11' fill='%23505BD4'/%3E%3Cpath d='M11 21l6 6 12-13' stroke='white' stroke-width='4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#FAF8F5; --side:#F1EEE8; --side-active:#E6E2D9; --card:#FFFFFF; --line:#E6E1D8; --line-strong:#D3CCBE;
+  --ink:#1B2340; --muted:#5C6178; --primary:#505BD4; --primary-dark:#3F49B8; --primary-soft:#ECEDFB;
+  --ok:#12805C; --ok-soft:#E2F3EB; --warn:#B45309; --warn-soft:#FDEBD9; --bad:#B42318; --bad-soft:#FDE7E4;
+  --radius:14px; --radius-sm:9px; --shadow:0 1px 2px rgba(27,35,64,.04),0 3px 10px rgba(27,35,64,.04);
+  --font:Inter,"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+  --mono:"JetBrains Mono","Cascadia Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--font);-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4,p{margin:0}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:var(--primary)}
+:focus-visible{outline:2px solid var(--primary);outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.skip{position:absolute;left:-999px;top:8px;background:var(--primary);color:#fff;padding:8px 14px;border-radius:8px;z-index:100}
+.skip:focus{left:8px}
+.mono,.label{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.muted{color:var(--muted)} .small{font-size:13px} .tiny{font-size:12px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.spread{justify-content:space-between}
+.grow{flex:1 1 auto}
+.stack>*+*{margin-top:12px}
+/* shell */
+.sidebar{position:fixed;inset:0 auto 0 0;width:248px;background:var(--side);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:20px 14px;z-index:40;overflow-y:auto}
+.brand{display:flex;gap:10px;align-items:center;padding:0 6px}
+.brand b{display:block;font-size:19px;letter-spacing:-.01em}
+.brand span{font-size:12.5px;color:var(--muted)}
+.logo{width:36px;height:36px;flex:none}
+.sidebar hr{border:0;border-top:1px solid var(--line-strong);margin:18px 6px}
+.nav{display:flex;flex-direction:column;gap:3px}
+.nav a{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:10px;color:var(--ink);text-decoration:none;font-size:14.5px}
+.nav a svg{color:var(--primary);flex:none}
+.nav a:hover{background:rgba(80,91,212,.07)}
+.nav a[aria-current=page]{background:var(--side-active);font-weight:650}
+.side-foot{margin-top:auto;padding-top:18px}
+.profile{display:flex;gap:10px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px}
+.avatar{width:34px;height:34px;border-radius:50%;background:var(--primary-soft);color:var(--primary-dark);display:grid;place-items:center;font-weight:700;flex:none}
+.profile b{display:block;font-size:14px;line-height:1.2}
+.profile span{font-size:12px;color:var(--muted)}
+.shell{margin-left:248px;min-height:100vh}
+.scrim{display:none}
+.topbar-m{display:none}
+main{padding:0 32px 48px;max-width:1280px}
+.page-head{padding:28px 0 20px;display:flex;gap:20px;justify-content:space-between;align-items:flex-end;flex-wrap:wrap}
+.page-head h1{font-size:28px;letter-spacing:-.02em;line-height:1.2;margin:6px 0 8px}
+.head-ctl{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+.head-ctl .field{min-width:150px}
+.pill{display:inline-flex;align-items:center;gap:7px;border-radius:999px;padding:6px 12px;font-size:12.5px;font-weight:600;border:1px solid var(--line-strong);background:#fff;white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--warn);flex:none}
+.dot.ok{background:var(--ok)} .dot.off{background:#9A9DAE} .dot.bad{background:var(--bad)}
+/* cards & layout */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px}
+.card-h{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.card-h h2{font-size:17px;letter-spacing:-.01em}
+.card.flat{box-shadow:none}
+.grid{display:grid;gap:16px}
+.kpis{grid-template-columns:repeat(4,1fr);margin-bottom:16px}
+.kpi{padding:16px 18px;border-radius:12px;box-shadow:none}
+.kpi .v{font-size:32px;font-weight:600;letter-spacing:-.02em;line-height:1.15;margin-top:4px}
+.kpi .s{font-size:12.5px;color:var(--muted)}
+.c-primary{color:var(--primary)} .c-ok{color:var(--ok)} .c-warn{color:var(--warn)} .c-bad{color:var(--bad)}
+.g2{grid-template-columns:1.5fr 1fr} .g2e{grid-template-columns:1fr 1fr} .g3{grid-template-columns:repeat(3,1fr)}
+.daily-grid{grid-template-columns:minmax(0,1fr) 380px;align-items:start}
+.sticky{position:sticky;top:16px}
+.banner{background:var(--primary);color:#fff;border-radius:var(--radius);padding:18px 22px;display:flex;gap:18px;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.banner h2{font-size:19px}
+.banner p{margin-top:4px;font-size:14.5px}
+.banner .chip{display:inline-block;margin-top:10px;background:rgba(27,35,64,.28);border-radius:999px;padding:3px 11px;font-size:12.5px}
+.banner .state{display:inline-block;margin-left:10px;font-size:12px;font-weight:700;background:#fff;color:var(--primary-dark);border-radius:999px;padding:2px 10px;vertical-align:middle}
+.banner .state.open{color:var(--ok)} .banner .state.nonworking{color:var(--muted)}
+/* controls */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1px solid var(--line-strong);background:#fff;border-radius:10px;padding:9px 15px;font-weight:600;font-size:14px;cursor:pointer;text-decoration:none;color:var(--ink);transition:background .12s,border-color .12s}
+.btn:hover{background:#F6F4EF;border-color:#BDB5A4}
+.btn:disabled,.btn[aria-disabled=true]{opacity:.5;cursor:not-allowed}
+.btn-primary{background:var(--primary);border-color:var(--primary);color:#fff}
+.btn-primary:hover{background:var(--primary-dark);border-color:var(--primary-dark)}
+.btn-white{background:#fff;color:var(--primary-dark);border-color:#fff}
+.btn-white:hover{background:#F0F1FF}
+.btn-danger{color:var(--bad);border-color:#EBC3BE}
+.btn-danger:hover{background:var(--bad-soft);border-color:var(--bad)}
+.btn-danger-solid{background:var(--bad);border-color:var(--bad);color:#fff}
+.btn-danger-solid:hover{background:#8F1C13}
+.btn-sm{padding:6px 11px;font-size:13px;border-radius:8px}
+.icon-btn{display:inline-grid;place-items:center;width:32px;height:32px;border-radius:8px;border:1px solid var(--line);background:#fff;cursor:pointer;color:var(--primary-dark)}
+.icon-btn:hover{background:var(--primary-soft);border-color:var(--primary)}
+.field{display:flex;flex-direction:column;gap:5px}
+.field>label,.field>.label{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.input,.select{width:100%;border:1px solid var(--line-strong);background:#fff;border-radius:10px;padding:9px 12px;min-height:40px}
+.input:hover,.select:hover{border-color:#B3AB9A}
+.input[aria-invalid=true]{border-color:var(--bad)}
+.err{color:var(--bad);font-size:13px;min-height:18px}
+.hint{font-size:12.5px;color:var(--muted)}
+.search{position:relative;min-width:220px;flex:1 1 220px}
+.search svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none}
+.search .input{padding-left:36px}
+.seg{display:inline-flex;border:1px solid var(--line-strong);border-radius:10px;overflow:hidden;background:#fff}
+.seg button{border:0;background:transparent;padding:8px 13px;font-size:13.5px;font-weight:600;cursor:pointer;border-right:1px solid var(--line)}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed=true]{background:var(--primary);color:#fff}
+.seg button:not([aria-pressed=true]):hover{background:var(--primary-soft)}
+.toolbar{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip-btn{border:1px solid var(--line-strong);background:#fff;border-radius:999px;padding:4px 10px;font:600 12px var(--mono);cursor:pointer}
+.chip-btn:hover{background:var(--primary-soft);border-color:var(--primary)}
+/* badges */
+.badge{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:3px 11px;font-size:12.5px;font-weight:650;white-space:nowrap}
+.badge.ok{background:var(--ok-soft);color:#0B6446} .badge.warn{background:var(--warn-soft);color:#9A4508}
+.badge.bad{background:var(--bad-soft);color:var(--bad)} .badge.info{background:var(--primary-soft);color:var(--primary-dark)}
+.badge.muted{background:#EFECE6;color:var(--muted)}
+/* tables */
+.tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:#fff}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{background:#FCFBF9;font-weight:600;color:var(--muted);font-size:13px}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover{background:#FCFBF8}
+tr.flash td{background:var(--ok-soft);animation:fl 2.2s ease-out forwards}
+@keyframes fl{to{background:transparent}}
+tr.dim td{color:var(--muted);background:#FBFAF7}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.th-btn{border:0;background:none;padding:0;font:inherit;color:inherit;cursor:pointer;display:inline-flex;gap:5px;align-items:center}
+.th-btn:hover{color:var(--ink)}
+.pager{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding-top:12px;font-size:13px;color:var(--muted)}
+.rollc{font-family:var(--mono);font-size:13px;font-weight:600}
+.bar{height:8px;background:#EFECE6;border-radius:99px;min-width:90px;overflow:hidden}
+.bar span{display:block;height:100%;border-radius:99px;background:var(--ok)}
+.bar span.warn{background:#D98324}
+.barcell{display:flex;gap:10px;align-items:center}
+.barcell .bar{flex:1}
+.empty{border:1px dashed var(--line-strong);border-radius:12px;padding:28px 18px;text-align:center;color:var(--muted);background:#FCFBF9}
+.empty b{display:block;color:var(--ink);margin-bottom:4px}
+/* list rows */
+.list>*{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line)}
+.list>*:last-child{border-bottom:0}
+.quick{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.quick a,.quick button{justify-content:flex-start}
+/* scanner */
+.sim-tag{font:700 10.5px var(--mono);letter-spacing:.06em;background:var(--warn-soft);color:#9A4508;border-radius:6px;padding:3px 7px;text-transform:uppercase}
+.scan-state{display:flex;gap:12px;align-items:center;padding:14px;border-radius:12px;border:1px solid var(--line);background:#FCFBF9}
+.scan-state.ok{background:var(--ok-soft);border-color:#B8DFCD}.scan-state.warn{background:var(--warn-soft);border-color:#F1CBA3}
+.scan-state.bad{background:var(--bad-soft);border-color:#F0BDB7}.scan-state.info{background:var(--primary-soft);border-color:#CBCEF3}
+.scan-state b{display:block;font-size:15.5px}
+.bitbox{display:flex;align-items:center;gap:12px}
+.bit{width:54px;height:54px;border-radius:12px;display:grid;place-items:center;font:700 26px var(--mono);border:2px solid var(--line-strong);background:#fff;color:var(--muted)}
+.bit.on{background:var(--ok);border-color:var(--ok);color:#fff}
+.bit-arrow{color:var(--muted)}
+.regs{display:grid;grid-template-columns:repeat(9,1fr);gap:4px}
+.reg{aspect-ratio:1;border-radius:5px;border:1px solid var(--line-strong);background:#fff;font:600 9.5px var(--mono);color:var(--muted);cursor:pointer;padding:0;display:grid;place-items:center}
+.reg.on{background:var(--ok);border-color:var(--ok);color:#fff}
+.reg.h{border-bottom:3px solid var(--primary)}
+.reg.sel{outline:2px solid var(--primary);outline-offset:1px}
+.log li{display:flex;gap:8px;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px solid var(--line);list-style:none}
+.log{margin:0;padding:0}
+/* charts */
+.chart{width:100%;height:auto;display:block}
+.c-grid{stroke:var(--line);stroke-width:1}.c-axis{fill:var(--muted);font:10px var(--mono)}
+.c-bar{fill:var(--primary)}.c-bar.low{fill:#D98324}.c-line{stroke:var(--primary);fill:none;stroke-width:2.2;stroke-linejoin:round}.c-dot{fill:var(--primary)}
+.c-area{fill:var(--primary);opacity:.08}
+/* flow */
+.flow{display:flex;gap:6px;align-items:stretch;flex-wrap:wrap}
+.node{flex:1 1 130px;border:1px solid var(--line-strong);border-radius:12px;padding:12px;background:#fff;min-width:130px}
+.node b{display:block;font-size:13.5px}.node span{font-size:12px;color:var(--muted)}
+.arrow{align-self:center;color:var(--primary);font-weight:700}
+.fsm{display:flex;gap:8px;flex-wrap:wrap}
+.fsm span{border:1px solid var(--line-strong);border-radius:8px;padding:5px 10px;font:600 12px var(--mono);background:#fff}
+.fsm span.on{background:var(--primary);border-color:var(--primary);color:#fff}
+dl.kv{margin:0;display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:14px}
+dl.kv dt{color:var(--muted)} dl.kv dd{margin:0}
+.diag li{list-style:none;display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line);font-size:14px}
+.diag{margin:0;padding:0}
+.dev-card{display:flex;flex-direction:column;gap:10px}
+.dev-card .ic{width:38px;height:38px;border-radius:10px;background:var(--primary-soft);color:var(--primary);display:grid;place-items:center}
+.notice{border-radius:10px;padding:11px 14px;font-size:13.5px;background:var(--warn-soft);color:#7A3A06;border:1px solid #F1CBA3;display:flex;gap:10px;align-items:flex-start}
+.notice.info{background:var(--primary-soft);color:#2C3590;border-color:#CBCEF3}
+.notice svg{flex:none;margin-top:2px}
+.daystrip{display:flex;gap:6px;flex-wrap:wrap}
+.daystrip span{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;font:600 11px var(--mono);background:#EFECE6;color:var(--muted)}
+.daystrip span.p{background:var(--ok);color:#fff}.daystrip span.a{background:var(--warn-soft);color:#9A4508}
+details.card summary{cursor:pointer;font-weight:650;font-size:16px}
+details pre{background:#FCFBF9;border:1px solid var(--line);border-radius:10px;padding:12px;overflow:auto;font:12.5px/1.55 var(--mono);margin:12px 0 0}
+.checks{display:flex;gap:8px;flex-wrap:wrap}
+.checks label{display:flex;gap:6px;align-items:center;border:1px solid var(--line-strong);border-radius:10px;padding:7px 11px;background:#fff;font-size:14px;cursor:pointer}
+.formgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.foot-note{margin-top:28px;font-size:12.5px;color:var(--muted);text-align:center}
+/* dialog + toast */
+dialog{border:1px solid var(--line);border-radius:16px;padding:0;max-width:min(560px,94vw);width:100%;box-shadow:0 20px 60px rgba(27,35,64,.25);color:var(--ink)}
+dialog.wide{max-width:min(860px,95vw)}
+dialog::backdrop{background:rgba(27,35,64,.45)}
+.dlg-in{padding:24px;max-height:88vh;overflow:auto}
+.dlg-in h2{font-size:20px;margin-bottom:8px}
+.dlg-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px;flex-wrap:wrap}
+#toasts{position:fixed;right:16px;bottom:16px;display:flex;flex-direction:column;gap:8px;z-index:200;max-width:min(380px,calc(100vw - 32px))}
+.toast{background:var(--ink);color:#fff;border-radius:12px;padding:12px 14px;font-size:14px;display:flex;gap:10px;align-items:flex-start;box-shadow:0 8px 24px rgba(27,35,64,.3)}
+.toast.ok{border-left:5px solid #3FC593}.toast.warn{border-left:5px solid #F2A04A}.toast.bad{border-left:5px solid #F27B70}.toast.info{border-left:5px solid #8D96F0}
+/* login */
+.login-wrap{min-height:100vh;display:grid;place-items:center;padding:24px;background:var(--bg)}
+.login{width:100%;max-width:440px}
+.login .card{padding:28px}
+.pw{position:relative}.pw .input{padding-right:46px}
+.pw button{position:absolute;right:4px;top:4px;width:32px;height:32px;border:0;background:none;border-radius:8px;cursor:pointer;color:var(--muted);display:grid;place-items:center}
+.pw button:hover{background:var(--primary-soft);color:var(--primary-dark)}
+/* responsive */
+@media (max-width:1180px){.daily-grid{grid-template-columns:1fr}.sticky{position:static}.g2{grid-template-columns:1fr}.g3{grid-template-columns:1fr 1fr}}
+@media (max-width:1023px){
+  .sidebar{transform:translateX(-102%);transition:transform .2s;box-shadow:0 0 40px rgba(27,35,64,.2)}
+  body.nav-open .sidebar{transform:none}
+  body.nav-open .scrim{display:block;position:fixed;inset:0;background:rgba(27,35,64,.4);z-index:30}
+  .shell{margin-left:0}
+  .topbar-m{display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--side);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+  main{padding:0 20px 40px}
+  .kpis{grid-template-columns:1fr 1fr}.g2e{grid-template-columns:1fr}
+}
+@media (max-width:640px){
+  main{padding:0 14px 36px}.page-head h1{font-size:23px}.card{padding:16px}.kpi .v{font-size:27px}
+  .g3,.formgrid,.quick{grid-template-columns:1fr}.head-ctl{width:100%}.head-ctl .field{flex:1}
+  .banner{padding:16px}.regs{grid-template-columns:repeat(9,1fr)}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media print{.sidebar,.topbar-m,#toasts{display:none}.shell{margin:0}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<dialog id="dlg" aria-modal="true"></dialog>
+<div id="toasts" aria-live="polite"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script>
+(function(){
+'use strict';
+/* =====================================================================
+   AttendEdge — Smart Attendance Management (FRONTEND PROTOTYPE)
+   Faculty-only dashboard. All data is fictional and stored in this browser.
+   Layers:  Service (data / API boundary)  ->  Calc (reports math)  ->  Views.
+   To go live later, replace the bodies of the Service functions with
+   fetch('/api/...') calls to a Flask + SQLite backend; the views stay unchanged.
+   ===================================================================== */
+const $=(s,r=document)=>r.querySelector(s);
+const $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pad=n=>String(n).padStart(2,'0');
+const clone=o=>JSON.parse(JSON.stringify(o));
+
+/* ---------- icons (inline, consistent 24px stroke set) ---------- */
+const ICONS={
+overview:'<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+daily:'<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 10h18M9 16l2 2 4-4"/>',
+students:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><circle cx="17.5" cy="9" r="2.5"/><path d="M17 14.2c2.6.2 4.5 2 4.5 4.8"/>',
+weekly:'<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/>',
+monthly:'<path d="M5 21V11M12 21V4M19 21v-7"/>',
+semester:'<path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11.5V16c0 1.5 3 3 6 3s6-1.5 6-3v-4.5"/>',
+pdf:'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M12 11v6M9.5 14.5L12 17l2.5-2.5"/>',
+device:'<rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/>',
+settings:'<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+logout:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',
+search:'<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
+download:'<path d="M12 3v12M7 10l5 5 5-5M4 20h16"/>',
+upload:'<path d="M12 16V4M7 9l5-5 5 5M4 20h16"/>',
+printer:'<path d="M7 9V3h10v6M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2"/><rect x="7" y="14" width="10" height="7"/>',
+check:'<path d="M5 12.5l4.5 4.5L19 7"/>',
+x:'<path d="M6 6l12 12M18 6L6 18"/>',
+eye:'<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+eyeoff:'<path d="M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4M6.5 6.6C3.7 8.4 2 12 2 12s3.6 7 10 7c1.7 0 3.2-.4 4.5-1M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
+menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',
+alert:'<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/>',
+info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5h.01"/>',
+barcode:'<path d="M4 5v14M7.5 5v14M11 5v14M14 5v14M17.5 5v14M20 5v14" stroke-width="1.7"/>',
+reset:'<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
+plus:'<path d="M12 5v14M5 12h14"/>',
+trash:'<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+edit:'<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
+chevL:'<path d="M15 5l-7 7 7 7"/>',chevR:'<path d="M9 5l7 7-7 7"/>',
+up:'<path d="M12 19V5M6 11l6-6 6 6"/>',down:'<path d="M12 5v14M6 13l6 6 6-6"/>',
+clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+shield:'<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/>',
+user:'<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/>',
+file:'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>',
+link:'<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+server:'<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
+play:'<path d="M7 4l13 8-13 8z"/>'
+};
+const ic=(n,s=18)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${ICONS[n]||''}</svg>`;
+const LOGO=`<svg class="logo" viewBox="0 0 40 40" aria-hidden="true"><rect width="40" height="40" rx="11" fill="#505BD4"/><path d="M11 12.5h12M11 20h8M11 27.5h12" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".55"/><path d="M21 21.5l4.6 4.6L33 17" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`;
+
+/* ---------- date / time helpers (YYYY-MM-DD strings, UTC arithmetic: no DST drift) ---------- */
+const D={
+ parse:s=>{const [y,m,d]=s.split('-').map(Number);return new Date(Date.UTC(y,m-1,d));},
+ fmt:dt=>`${dt.getUTCFullYear()}-${pad(dt.getUTCMonth()+1)}-${pad(dt.getUTCDate())}`,
+ add:(s,n)=>{const dt=D.parse(s);dt.setUTCDate(dt.getUTCDate()+n);return D.fmt(dt);},
+ dow:s=>D.parse(s).getUTCDay(),
+ valid:s=>/^\d{4}-\d{2}-\d{2}$/.test(s||'')&&!isNaN(D.parse(s)),
+ range:(a,b)=>{const o=[];let d=a,i=0;while(d<=b&&i<900){o.push(d);d=D.add(d,1);i++;}return o;},
+ weekStart:s=>D.add(s,-((D.dow(s)+6)%7)),
+ long:s=>D.parse(s).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric',timeZone:'UTC'}),
+ med:s=>D.parse(s).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'}),
+ short:s=>D.parse(s).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'UTC'}),
+ dayName:s=>D.parse(s).toLocaleDateString('en-GB',{weekday:'long',timeZone:'UTC'}),
+ mon:(y,m)=>new Date(Date.UTC(y,m-1,1)).toLocaleDateString('en-GB',{month:'long',year:'numeric',timeZone:'UTC'}),
+ monShort:(y,m)=>new Date(Date.UTC(y,m-1,1)).toLocaleDateString('en-GB',{month:'short',timeZone:'UTC'}),
+ monthRange:(y,m)=>[`${y}-${pad(m)}-01`,D.fmt(new Date(Date.UTC(y,m,0)))],
+ firstMonday:s=>{let d=s;while(D.dow(d)!==1)d=D.add(d,1);return d;}
+};
+const WD=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const toSec=t=>{const p=String(t).split(':').map(Number);return p[0]*3600+(p[1]||0)*60+(p[2]||0);};
+const hms=sec=>`${pad(Math.floor(sec/3600))}:${pad(Math.floor(sec%3600/60))}:${pad(sec%60)}`;
+const t12=t=>{const p=String(t).split(':').map(Number);const ap=p[0]>=12?'PM':'AM';return `${p[0]%12||12}:${pad(p[1]||0)}${p.length>2?':'+pad(p[2]):''} ${ap}`;};
+
+/* ---------- storage ---------- */
+const STORE_KEY='attendedge.demo.v1', AUTH_KEY='attendedge.auth.v1';
+/* DEMO ONLY: this check exists solely so the prototype can be explored. It is NOT security. */
+const DEMO_LOGIN={user:'faculty',pass:'demo123'};
+let DB=null, storageOk=true, mem=null;
+function save(){try{localStorage.setItem(STORE_KEY,JSON.stringify(DB));}catch(e){storageOk=false;mem=JSON.stringify(DB);}}
+function readStore(){try{const r=localStorage.getItem(STORE_KEY);return r?JSON.parse(r):null;}catch(e){storageOk=false;return mem?JSON.parse(mem):null;}}
+function realNow(){
+ const tz=(DB&&DB.settings&&DB.settings.timezone)||'Asia/Kolkata';
+ const parts=new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(new Date());
+ const g=t=>parts.find(p=>p.type===t).value;
+ return {date:`${g('year')}-${g('month')}-${g('day')}`,time:`${g('hour')==='24'?'00':g('hour')}:${g('minute')}:${g('second')}`};
+}
+const today=()=>realNow().date;
+function clockNow(){const r=realNow();return DB.ui.clock.mode==='real'?r:{date:r.date,time:DB.ui.clock.time};}
+
+/* ---------- seed data (all fictional) ---------- */
+const FIRST=['Anika','Rohan','Meera','Kabir','Isha','Dev','Tara','Neel','Zoya'];
+const LAST=['Verma','Nair','Iyer','Menon','Kulkarni','Bose','Rao'];
+function hash32(s){let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return h>>>0;}
+function rnd(seed){let t=(seed+0x6D2B79F5)>>>0;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296;}
+function defaultSettings(){
+ const n=realNow(),y=+n.date.slice(0,4),mo=+n.date.slice(5,7),second=mo>=7;
+ const start=D.firstMonday(second?`${y}-08-01`:`${y}-01-01`);
+ return {department:'Electronics Engineering',classSection:'Section A',semester:second?'3':'4',
+  academicYear:second?`${y}-${pad((y+1)%100)}`:`${y-1}-${pad(y%100)}`,timezone:'Asia/Kolkata',
+  workingWeekdays:[1,2,3,4,5],
+  holidays:second?[{date:`${y}-08-26`,label:'Sample holiday'},{date:`${y}-10-02`,label:'Gandhi Jayanti (sample)'},{date:`${y}-10-20`,label:'Sample holiday'}]:[{date:`${y}-03-04`,label:'Sample holiday'}],
+  openingTime:'08:00',closingTime:'08:35',threshold:75,retentionYears:2,semesterStart:start,semesterEnd:D.add(start,125)};
+}
+function freshDB(){
+ const settings=defaultSettings();
+ DB={version:1,settings,students:[],sessions:{},records:{},events:[],ui:{selDate:today(),clock:{mode:'sim',time:'08:10:00'}}};
+ for(let i=1;i<=63;i++){
+  const f=FIRST[(i-1)%9],l=LAST[(i-1)%7];
+  DB.students.push({id:'stu-'+pad(i),rollNumber:'25EV'+String(i).padStart(3,'0'),name:`${f} ${l}`,
+   email:`${f}.${l}.${String(i).padStart(2,'0')}@example.edu`.toLowerCase(),department:settings.department,
+   classSection:settings.classSection,semester:settings.semester,residence:defaultRes('25EV'+String(i).padStart(3,'0')),placeholder:true});
+ }
+ ensureHistory();save();
+}
+const RES=['Hosteller','Day Scholar'];
+const defaultRes=roll=>rnd(hash32('res'+roll))<0.4?'Hosteller':'Day Scholar';
+function baseProb(roll){return .64+.35*Math.sqrt(rnd(hash32('base'+roll)));}
+function seedDay(date){
+ const open=toSec(DB.settings.openingTime),close=toSec(DB.settings.closingTime);
+ const rec={};
+ DB.students.forEach(s=>{
+  if(rnd(hash32(s.rollNumber+date+'p'))<baseProb(s.rollNumber)){
+   const r=rnd(hash32(s.rollNumber+date+'t'));
+   rec[s.rollNumber]={t:hms(open+5+Math.floor(Math.pow(r,1.5)*Math.max(10,close-open-40))),src:'seed'};
+  }
+ });
+ DB.records[date]=rec;
+ DB.sessions[date]={id:'ses-'+date,date,openingTime:DB.settings.openingTime,closingTime:DB.settings.closingTime,sessionStatus:'Closed'};
+}
+function ensureHistory(){
+ const y=D.add(today(),-1),end=y<DB.settings.semesterEnd?y:DB.settings.semesterEnd;
+ D.range(DB.settings.semesterStart,end).forEach(d=>{if(isWorkingDay(d)&&!DB.sessions[d])seedDay(d);});
+}
+function loadDB(){
+ const s=readStore();
+ if(s&&s.version===1&&Array.isArray(s.students)&&s.students.length===63){DB=s;DB.students.forEach(st=>{if(!RES.includes(st.residence))st.residence=defaultRes(st.rollNumber);});ensureHistory();save();}else freshDB();
+}
+
+/* ---------- calendar & session logic ---------- */
+const holidayOf=d=>DB.settings.holidays.find(h=>h.date===d);
+function isWorkingDay(d){return DB.settings.workingWeekdays.includes(D.dow(d))&&!holidayOf(d);}
+function sessionTimes(d){
+ if(d<today()&&DB.sessions[d])return {open:DB.sessions[d].openingTime,close:DB.sessions[d].closingTime};
+ return {open:DB.settings.openingTime,close:DB.settings.closingTime};
+}
+/* RULE (used everywhere): a scan stamped at time t is accepted when  open <= t <= close,
+   compared in whole seconds. Closing 08:35 means 08:35:00 is the last accepted instant;
+   08:35:01 is "Attendance Closed". Before 08:00:00 is "Not Started". */
+function windowState(t,times){const s=toSec(t);if(s<toSec(times.open))return 'notstarted';if(s<=toSec(times.close))return 'open';return 'closed';}
+function sessionInfo(date){
+ const n=clockNow(),times=sessionTimes(date);
+ if(!isWorkingDay(date)){const h=holidayOf(date);return {key:'nonworking',label:'No session',reason:h?`${h.label} (holiday)`:`${D.dayName(date)} is not a working day`,times};}
+ if(date<n.date)return {key:'closed',label:'Closed',reason:'Session finished',times};
+ if(date>n.date)return {key:'notstarted',label:'Not Started',reason:'Upcoming working day',times};
+ const w=windowState(n.time,times);
+ return {key:w,label:w==='open'?'Open':w==='closed'?'Closed':'Not Started',times};
+}
+function completed(d){
+ const n=clockNow();if(d<n.date)return true;if(d>n.date)return false;
+ return windowState(n.time,sessionTimes(d))==='closed';
+}
+const recOn=d=>DB.records[d]||{};
+const presentCount=d=>Object.keys(recOn(d)).length;
+const logEvent=e=>{DB.events.unshift(Object.assign({id:'evt-'+Date.now().toString(36)+Math.random().toString(36).slice(2,5)},e));DB.events=DB.events.slice(0,100);};
+
+/* ---------- SERVICE (replace with API calls in production) ---------- */
+const Service={
+ getStudent:roll=>DB.students.find(s=>s.rollNumber===roll),
+ updateStudent(roll,patch){const s=Service.getStudent(roll);if(!s)return null;Object.assign(s,patch,{placeholder:false});save();return s;},
+ scan(raw){
+  const n=clockNow(),roll=String(raw||'').trim().toUpperCase(),stu=DB.students.find(s=>s.rollNumber===roll);
+  let r;
+  if(!stu)r={state:'invalid',message:`Invalid ID: ${roll||'(empty)'} is not on the roster. Nothing was recorded.`};
+  else{
+   const info=sessionInfo(n.date),tm=info.times;
+   if(info.key==='nonworking')r={state:'closed',message:`Attendance Closed: ${info.reason}. Scan rejected.`};
+   else if(info.key==='notstarted')r={state:'notstarted',message:`Not Started: scanning opens at ${t12(tm.open)}. Scan rejected.`};
+   else if(info.key==='closed')r={state:'closed',message:`Attendance Closed: scanning ended at ${t12(tm.close)}. Scan rejected.`};
+   else{
+    const day=DB.records[n.date]=DB.records[n.date]||{};
+    if(day[roll])r={state:'duplicate',message:`Already Present: ${stu.name} (${roll}, ${stu.residence}) was recorded at ${t12(day[roll].t)}. No second record created.`};
+    else{
+     day[roll]={t:n.time,src:'sim',ev:{scanner:'SIMULATOR',raw:roll,clock:DB.ui.clock.mode,at:new Date().toISOString()}};
+     DB.sessions[n.date]=DB.sessions[n.date]||{id:'ses-'+n.date,date:n.date,openingTime:tm.open,closingTime:tm.close,sessionStatus:'Open'};
+     r={state:'present',message:`Present Recorded: ${stu.name} (${roll}, ${stu.residence}) at ${t12(n.time)}. Register bit 0 → 1.`};
+    }
+   }
+  }
+  Object.assign(r,{roll,date:n.date,time:n.time});
+  logEvent({date:n.date,time:n.time,roll:roll||'—',state:r.state,message:r.message});save();return r;
+ },
+ resetDay(date){
+  if(date<today())return {ok:false,reason:'Historical records are protected and cannot be reset.'};
+  const removed=presentCount(date);delete DB.records[date];
+  logEvent({date,time:clockNow().time,roll:'—',state:'reset',message:`Demo day ${date} reset: ${removed} record(s) cleared.`});
+  save();return {ok:true,removed};
+ },
+ saveSettings(patch){Object.assign(DB.settings,patch);ensureHistory();save();},
+ resetAll(){try{localStorage.removeItem(STORE_KEY);}catch(e){}freshDB();},
+ purgeOld(){
+  const cut=D.add(today(),-365*DB.settings.retentionYears);let n=0;
+  Object.keys(DB.records).forEach(d=>{if(d<cut){n+=presentCount(d);delete DB.records[d];}});
+  Object.keys(DB.sessions).forEach(d=>{if(d<cut)delete DB.sessions[d];});
+  save();return n;
+ }
+};
+
+/* ---------- CALC: all report maths uses working-day calendar + recorded attendance ---------- */
+const countedDays=(a,b)=>D.range(a,b).filter(d=>isWorkingDay(d)&&completed(d));
+const scheduledDays=(a,b)=>D.range(a,b).filter(isWorkingDay);
+function classStats(a,b){
+ const days=countedDays(a,b),map={};
+ DB.students.forEach(s=>{let p=0;days.forEach(d=>{if(recOn(d)[s.rollNumber])p++;});
+  map[s.rollNumber]={working:days.length,present:p,absent:days.length-p,pct:days.length?p/days.length*100:null};});
+ return {days,map};
+}
+function summarize(map){
+ const v=Object.values(map).filter(x=>x.pct!==null);
+ if(!v.length)return {avg:null,below:0,above:0};
+ return {avg:v.reduce((a,x)=>a+x.pct,0)/v.length,below:v.filter(x=>x.pct<DB.settings.threshold).length,above:v.filter(x=>x.pct>=DB.settings.threshold).length};
+}
+function studentDays(roll,a,b){
+ return D.range(a,b).map(d=>{
+  const wk=isWorkingDay(d),done=completed(d),r=recOn(d)[roll];
+  let status=!wk?'—':!done?'Pending':r?'Present':'Absent';
+  return {date:d,wk,done,status,time:r?r.t:null,type:wk?'Working day':(holidayOf(d)?'Holiday: '+holidayOf(d).label:'Non-working day')};
+ });
+}
+const pctText=v=>v===null||v===undefined?'Not Available':v.toFixed(1)+'%';
+const tone=v=>v!==null&&v>=DB.settings.threshold?'ok':'warn';
+const inBand=(v,band)=>band==='all'||(band==='below'&&v!==null&&v<DB.settings.threshold)||(band==='above'&&v!==null&&v>=DB.settings.threshold)||(band==='na'&&v===null);
+window.__AE={get DB(){return DB;},Service,D,toSec,isWorkingDay,sessionInfo,classStats,countedDays,clockNow,today,save};
+/* ---------- UI state ---------- */
+const UI={page:'overview',tables:{},
+ daily:{q:'',filter:'all',size:25,res:''},
+ stu:{q:'',dept:'',cls:'',sem:'',res:''},
+ weekly:{date:'',q:'',band:'all',res:''},
+ monthly:{y:0,m:0,q:'',band:'all',student:'25EV001',res:''},
+ sem:{sem:'',ay:'',q:'',band:'all',res:''},
+ pdf:{student:'25EV001',day:'',week:'',y:0,m:0,pDate:'',aDate:'',cy:0,cm:0},
+ scan:{state:'ready',message:'Scanner idle. Enter a roll number and press Scan.',roll:'25EV001',err:'',busy:false,flash:null}};
+function initUI(){
+ const t=today(),y=+t.slice(0,4),m=+t.slice(5,7);
+ UI.weekly.date=UI.pdf.day=UI.pdf.week=UI.pdf.pDate=UI.pdf.aDate=DB.ui.selDate||t;
+ UI.monthly.y=UI.pdf.y=UI.pdf.cy=y;UI.monthly.m=UI.pdf.m=UI.pdf.cm=m;
+ UI.sem.sem=DB.settings.semester;UI.sem.ay=DB.settings.academicYear;
+}
+
+/* ---------- toasts + dialogs ---------- */
+function toast(msg,kind='info'){
+ const host=$('#toasts'),el=document.createElement('div');
+ el.className='toast '+kind;el.setAttribute('role',kind==='bad'?'alert':'status');
+ el.innerHTML=`${ic(kind==='ok'?'check':kind==='bad'||kind==='warn'?'alert':'info',18)}<div>${esc(msg)}</div>`;
+ host.appendChild(el);while(host.children.length>4)host.firstChild.remove();
+ setTimeout(()=>el.remove(),kind==='bad'?7000:4500);
+}
+let pendingConfirm=null;
+function openModal(html,wide){const d=$('#dlg');d.className=wide?'wide':'';d.innerHTML=`<div class="dlg-in">${html}</div>`;if(!d.open)d.showModal();}
+function closeModal(){const d=$('#dlg');if(d.open)d.close();}
+function confirmDialog({title,body,ok='Confirm',danger=false}){
+ return new Promise(res=>{
+  pendingConfirm=res;
+  openModal(`<h2>${esc(title)}</h2><p class="muted">${body}</p><div class="dlg-actions"><button class="btn" data-act="dlgCancel">Cancel</button><button class="btn ${danger?'btn-danger-solid':'btn-primary'}" data-act="dlgOk">${esc(ok)}</button></div>`);
+ });
+}
+
+/* ---------- charts (inline SVG) ---------- */
+function chart({type='bar',labels,values,max=100,unit='%',h=200,label='Chart'}){
+ if(!values.some(v=>v!==null))return `<div class="empty"><b>No completed sessions in this period</b>Charts fill in once working days have finished.</div>`;
+ const W=640,pl=36,pr=8,pt=10,pb=26,iw=W-pl-pr,ih=h-pt-pb,n=values.length;
+ const cx=i=>pl+iw/n*(i+.5),cy=v=>pt+ih*(1-Math.min(v,max)/max),step=Math.max(1,Math.ceil(n/8));
+ let s=`<svg class="chart" viewBox="0 0 ${W} ${h}" role="img" aria-label="${esc(label)}">`;
+ [0,.25,.5,.75,1].forEach(f=>{const y=pt+ih*(1-f);s+=`<line class="c-grid" x1="${pl}" x2="${W-pr}" y1="${y}" y2="${y}"/><text class="c-axis" x="${pl-6}" y="${y+3}" text-anchor="end">${Math.round(max*f)}</text>`;});
+ const val=v=>unit==='%'?v.toFixed(1)+'%':v;
+ if(type==='bar'){
+  const bw=Math.max(3,Math.min(34,iw/n*.62));
+  values.forEach((v,i)=>{if(v===null)return;const y=cy(v);s+=`<rect class="c-bar${unit==='%'&&v<DB.settings.threshold?' low':''}" x="${(cx(i)-bw/2).toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${(pt+ih-y).toFixed(1)}" rx="3"><title>${esc(labels[i])}: ${val(v)}</title></rect>`;});
+ }else{
+  let d='',pen=false;
+  values.forEach((v,i)=>{if(v===null){pen=false;return;}d+=`${pen?'L':'M'}${cx(i).toFixed(1)} ${cy(v).toFixed(1)} `;pen=true;});
+  s+=`<path class="c-line" d="${d}"/>`;
+  if(n<=45)values.forEach((v,i)=>{if(v!==null)s+=`<circle class="c-dot" cx="${cx(i).toFixed(1)}" cy="${cy(v).toFixed(1)}" r="3.2"><title>${esc(labels[i])}: ${val(v)}</title></circle>`;});
+ }
+ labels.forEach((l,i)=>{if(i%step===0)s+=`<text class="c-axis" x="${cx(i).toFixed(1)}" y="${h-8}" text-anchor="middle">${esc(l)}</text>`;});
+ return s+'</svg>';
+}
+
+/* ---------- generic sortable / paginated table ---------- */
+const T=id=>UI.tables[id]||(UI.tables[id]={sort:null,dir:'asc',page:1});
+function table(id,{cols,rows,size=25,caption,rowCls,empty}){
+ const st=T(id);let data=rows.slice();
+ if(st.sort){const c=cols.find(c=>c.key===st.sort),v=c.val||(r=>r[c.key]),dir=st.dir==='asc'?1:-1;
+  data.sort((a,b)=>{const x=v(a),y=v(b);if(x==null&&y==null)return 0;if(x==null)return 1;if(y==null)return -1;
+   return (typeof x==='number'&&typeof y==='number'?x-y:String(x).localeCompare(String(y),undefined,{numeric:true}))*dir;});}
+ const pages=size?Math.max(1,Math.ceil(data.length/size)):1;st.page=Math.min(Math.max(1,st.page),pages);
+ const slice=size?data.slice((st.page-1)*size,st.page*size):data;
+ if(!data.length)return empty||`<div class="empty"><b>No matching rows</b>Adjust the search or filters.</div>`;
+ const head=cols.map(c=>{const on=st.sort===c.key;
+  return `<th scope="col" class="${c.cls||''}" aria-sort="${on?(st.dir==='asc'?'ascending':'descending'):'none'}">${c.nosort?esc(c.label):`<button class="th-btn" data-act="sort" data-t="${id}" data-k="${c.key}">${esc(c.label)}${on?ic(st.dir==='asc'?'up':'down',13):''}</button>`}</th>`;}).join('');
+ const body=slice.map(r=>`<tr class="${rowCls?rowCls(r):''}">${cols.map(c=>`<td class="${c.cls||''}">${c.html?c.html(r):esc(r[c.key])}</td>`).join('')}</tr>`).join('');
+ let pager='';
+ if(size&&data.length>size){const a=(st.page-1)*size+1,b=Math.min(data.length,st.page*size);
+  pager=`<div class="pager"><span>Showing ${a}–${b} of ${data.length}</span><span class="row"><button class="btn btn-sm" data-act="page" data-t="${id}" data-d="-1" ${st.page<=1?'disabled':''}>${ic('chevL',14)} Prev</button><span>Page ${st.page} of ${pages}</span><button class="btn btn-sm" data-act="page" data-t="${id}" data-d="1" ${st.page>=pages?'disabled':''}>Next ${ic('chevR',14)}</button></span></div>`;}
+ else pager=`<div class="pager"><span>${data.length} row${data.length===1?'':'s'}</span></div>`;
+ return `<div class="tbl-wrap"><table><caption class="sr">${esc(caption||'Data table')}</caption><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>${pager}`;
+}
+const badge=(t,txt)=>`<span class="badge ${t}">${esc(txt)}</span>`;
+const bar=v=>v===null?'<span class="muted small">Not Available</span>':`<div class="barcell"><div class="bar" role="img" aria-label="${v.toFixed(1)} percent"><span class="${tone(v)==='ok'?'':'warn'}" style="width:${Math.max(0,Math.min(100,v))}%"></span></div><span class="small" style="min-width:48px;text-align:right">${v.toFixed(1)}%</span></div>`;
+const resBadge=r=>r==='Hosteller'?badge('info','Hosteller'):badge('muted','Day Scholar');
+const resSel=(id,bind,v)=>`<div class="field"><label for="${id}">Residence</label><select id="${id}" class="select" data-bind="${bind}"><option value="">All</option>${RES.map(o=>`<option ${v===o?'selected':''}>${o}</option>`).join('')}</select></div>`;
+const resAvg=map=>RES.map(r=>{const all=DB.students.filter(s=>s.residence===r),v=all.filter(s=>map[s.rollNumber].pct!==null).map(s=>map[s.rollNumber].pct);return {r,n:all.length,avg:v.length?v.reduce((a,x)=>a+x,0)/v.length:null};});
+const resLine=map=>`<p class="muted small" style="margin:-4px 0 16px">Average by residence: ${resAvg(map).map(x=>`<b>${x.r}</b> (${x.n} students) ${pctText(x.avg)}`).join(' · ')}</p>`;
+const rollc=r=>`<span class="rollc">${esc(r)}</span>`;
+const empty=(t,b)=>`<div class="empty"><b>${esc(t)}</b>${esc(b||'')}</div>`;
+
+/* ---------- reports (single model -> PDF / print / CSV) ---------- */
+const CLASS_COLS=['Roll number','Student name','Residence','Working days','Present','Absent','Attendance %'];
+function meta(period,stu){const s=DB.settings,n=realNow();
+ return [['Department',stu?stu.department:s.department],['Class / Section',stu?stu.classSection:s.classSection],...(stu?[['Residence',stu.residence]]:[]),['Semester',`${stu?stu.semester:s.semester} (AY ${s.academicYear})`],['Period',period],['Generated',`${D.med(n.date)}, ${t12(n.time)} (${s.timezone})`]];}
+const classRows=map=>DB.students.map(s=>{const x=map[s.rollNumber];return [s.rollNumber,s.name,s.residence,x.working,x.present,x.absent,pctText(x.pct)];});
+function classSummary(st){const sm=summarize(st.map);return [['Students',DB.students.length],['Working days counted',st.days.length],['Class average',pctText(sm.avg)],[`Below ${DB.settings.threshold}%`,sm.below],...resAvg(st.map).map(x=>[`${x.r} average (${x.n})`,pctText(x.avg)])];}
+function studentSummary(days){const w=days.filter(x=>x.wk&&x.done),p=w.filter(x=>x.status==='Present').length;
+ return [['Working days counted',w.length],['Present',p],['Absent',w.length-p],['Attendance %',pctText(w.length?p/w.length*100:null)]];}
+const dayRowsOf=days=>days.map(x=>[D.short(x.date),x.type,x.status,x.time?t12(x.time):'—']);
+const srcName=r=>r?(r.src==='sim'?'Simulated scanner':'Seeded demo data'):'—';
+function listRows(date,present){return DB.students.filter(s=>!!recOn(date)[s.rollNumber]===present).map((s,i)=>{const r=recOn(date)[s.rollNumber];return [i+1,s.rollNumber,s.name,s.residence,present?t12(r.t):'Absent (0)'];});}
+const resPresent=date=>RES.map(r=>{const g=DB.students.filter(s=>s.residence===r);return [`${r} present`,`${g.filter(s=>recOn(date)[s.rollNumber]).length} of ${g.length}`];});
+const Reports={
+ dailyStudent({roll,date}){
+  const s=Service.getStudent(roll),info=sessionInfo(date),r=recOn(date)[roll];
+  const status=info.key==='nonworking'?`No session (${info.reason})`:r?'Present (1)':completed(date)?'Absent (0)':'Absent (0), session not finished';
+  return {file:`AttendEdge_daily_${roll}_${date}`,title:'Student daily attendance report',meta:meta(D.long(date),s),summary:[],columns:['Field','Value'],
+   rows:[['Roll number',roll],['Student name',s.name],['Residence',s.residence],['Date',D.long(date)],['Session window',`${t12(info.times.open)} - ${t12(info.times.close)}`],['Status',status],['First scan time',r?t12(r.t):'—'],['Record source',srcName(r)]]};
+ },
+ weeklyStudent({roll,date}){
+  const s=Service.getStudent(roll),ws=D.weekStart(date),we=D.add(ws,6),days=studentDays(roll,ws,we);
+  return {file:`AttendEdge_weekly_${roll}_${ws}`,title:'Student weekly attendance report',meta:meta(`${D.med(ws)} to ${D.med(we)}`,s),summary:studentSummary(days),columns:['Date','Day type','Status','First scan time'],rows:dayRowsOf(days)};
+ },
+ monthlyStudent({roll,y,m}){
+  const s=Service.getStudent(roll),[a,b]=D.monthRange(+y,+m),days=studentDays(roll,a,b);
+  return {file:`AttendEdge_monthly_${roll}_${y}-${pad(m)}`,title:'Student monthly attendance report',meta:meta(D.mon(+y,+m),s),summary:studentSummary(days),columns:['Date','Day type','Status','First scan time'],rows:dayRowsOf(days)};
+ },
+ semesterStudent({roll}){
+  const s=Service.getStudent(roll),a=DB.settings.semesterStart,b=DB.settings.semesterEnd,rows=[];
+  let cy=+a.slice(0,4),cm=+a.slice(5,7);const ey=+b.slice(0,4),em=+b.slice(5,7);
+  while(cy*12+cm<=ey*12+em){
+   const [ma,mb]=D.monthRange(cy,cm),lo=ma<a?a:ma,hi=mb>b?b:mb,days=studentDays(roll,lo,hi),w=days.filter(x=>x.wk&&x.done),p=w.filter(x=>x.status==='Present').length;
+   rows.push([D.mon(cy,cm),w.length,p,w.length-p,pctText(w.length?p/w.length*100:null)]);
+   cm++;if(cm>12){cm=1;cy++;}
+  }
+  const all=studentDays(roll,a,b);
+  return {file:`AttendEdge_semester_${roll}`,title:'Student semester attendance report',meta:meta(`${D.med(a)} to ${D.med(b)}`,s),summary:studentSummary(all),columns:['Month','Working days','Present','Absent','Attendance %'],rows};
+ },
+ dailyAll({date}){const tot=DB.students.length,pc=presentCount(date),rows=DB.students.map(s=>{const r=recOn(date)[s.rollNumber];return [s.rollNumber,s.name,s.residence,r?t12(r.t):'—',r?'Present (1)':'Absent (0)'];});
+  return {file:`AttendEdge_daily_attendance_${date}`,title:'Daily attendance register',meta:meta(D.long(date)),summary:[['Present',pc],['Absent',tot-pc],['Attendance %',pctText(pc/tot*100)],...resPresent(date)],columns:['Roll number','Student name','Residence','Scan time','Status'],rows};},
+ presentList({date}){const rows=listRows(date,true),tot=DB.students.length;
+  return {file:`AttendEdge_present_${date}`,title:'Daily present list',meta:meta(D.long(date)),summary:[['Present',rows.length],['Absent',tot-rows.length],['Attendance %',pctText(rows.length/tot*100)],...resPresent(date)],columns:['#','Roll number','Student name','Residence','First scan time'],rows};},
+ absentList({date}){const rows=listRows(date,false),tot=DB.students.length;
+  return {file:`AttendEdge_absent_${date}`,title:'Daily absent list',meta:meta(D.long(date)),summary:[['Absent',rows.length],['Present',tot-rows.length],['Attendance %',pctText((tot-rows.length)/tot*100)],...resPresent(date)],columns:['#','Roll number','Student name','Residence','Status'],rows};},
+ weeklyClass({date}){const ws=D.weekStart(date),we=D.add(ws,6),st=classStats(ws,we);
+  return {file:`AttendEdge_weekly_class_${ws}`,title:'Weekly class attendance report',meta:meta(`${D.med(ws)} to ${D.med(we)}`),summary:classSummary(st),columns:CLASS_COLS,rows:classRows(st.map)};},
+ monthlyClass({y,m}){const [a,b]=D.monthRange(+y,+m),st=classStats(a,b);
+  return {file:`AttendEdge_monthly_class_${y}-${pad(m)}`,title:'Monthly report: all 63 students',meta:meta(D.mon(+y,+m)),summary:classSummary(st),columns:CLASS_COLS,rows:classRows(st.map)};},
+ semesterClass(){const a=DB.settings.semesterStart,b=DB.settings.semesterEnd,st=classStats(a,b);
+  return {file:`AttendEdge_semester_class_${DB.settings.academicYear}_S${DB.settings.semester}`,title:'Semester report: all 63 students',meta:meta(`${D.med(a)} to ${D.med(b)}`),summary:classSummary(st),columns:CLASS_COLS,rows:classRows(st.map)};}
+};
+function pdfArgs(name){const p=UI.pdf;
+ return ({dailyStudent:{roll:p.student,date:p.day},weeklyStudent:{roll:p.student,date:p.week},monthlyStudent:{roll:p.student,y:p.y,m:p.m},semesterStudent:{roll:p.student},
+  presentList:{date:p.pDate},absentList:{date:p.aDate},monthlyClass:{y:p.cy,m:p.cm},semesterClass:{}})[name]||{};}
+const pdfSafe=s=>String(s==null?'':s).replace(/[—–]/g,'-').replace(/→/g,'->').replace(/…/g,'...');
+function download(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},800);}
+const csvCell=v=>{const s=String(v==null?'':v);return /[",\n\r]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
+const toCSV=rows=>rows.map(r=>r.map(csvCell).join(',')).join('\r\n');
+function exportCSV(rep){
+ download(new Blob(['\ufeff'+toCSV([['AttendEdge',rep.title],...rep.meta,...rep.summary,[],rep.columns,...rep.rows])],{type:'text/csv;charset=utf-8'}),rep.file+'.csv');
+ toast(`CSV downloaded: ${rep.file}.csv`,'ok');
+}
+function printReport(rep){
+ const tbl=`<table><thead><tr>${rep.columns.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${rep.rows.map(r=>`<tr>${r.map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+ const html=`<!doctype html><html><head><meta charset="utf-8"><title>${esc(rep.file)}</title><style>body{font:13px/1.45 Arial,Helvetica,sans-serif;color:#1B2340;margin:24px}h1{font-size:23px;color:#505BD4;margin:0}.sub{color:#5C6178;margin-bottom:14px;border-bottom:1px solid #E6E1D8;padding-bottom:10px}h2{font-size:17px;margin:12px 0 6px}p{margin:2px 0;color:#464B5F}.sum{margin:10px 0;font-weight:bold}table{border-collapse:collapse;width:100%;margin-top:10px}th{background:#505BD4;color:#fff;text-align:left}th,td{border:1px solid #D3CCBE;padding:5px 8px;font-size:12px}tr:nth-child(even) td{background:#FAF8F5}.foot{margin-top:14px;font-size:11px;color:#5C6178}@page{margin:14mm}</style></head><body><h1>AttendEdge</h1><div class="sub">Smart Attendance Management</div><h2>${esc(rep.title)}</h2>${rep.meta.map(m=>`<p>${esc(m[0])}: ${esc(m[1])}</p>`).join('')}${rep.summary.length?`<p class="sum">${rep.summary.map(s=>esc(s[0])+': '+esc(s[1])).join(' &nbsp;|&nbsp; ')}</p>`:''}${tbl}<p class="foot">Generated by AttendEdge prototype. All names and records are fictional demo data.</p></body></html>`;
+ const f=document.createElement('iframe');f.setAttribute('aria-hidden','true');f.style.cssText='position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+ document.body.appendChild(f);
+ f.onload=()=>setTimeout(()=>{try{f.contentWindow.focus();f.contentWindow.print();}catch(e){}setTimeout(()=>f.remove(),5000);},200);
+ f.srcdoc=html;toast('Print view opened. Choose "Save as PDF" as the destination.','info');
+}
+function exportPDF(rep){
+ const J=window.jspdf&&window.jspdf.jsPDF;
+ if(!J){toast('The PDF library did not load (offline?). Opening the print view instead: choose "Save as PDF".','warn');return printReport(rep);}
+ try{
+  const doc=new J({unit:'pt',format:'a4',orientation:rep.columns.length>5?'landscape':'portrait'});
+  if(typeof doc.autoTable!=='function')throw new Error('autotable missing');
+  const W=doc.internal.pageSize.getWidth(),H=doc.internal.pageSize.getHeight(),M=40;let y=48;
+  doc.setFont('helvetica','bold');doc.setFontSize(21);doc.setTextColor(80,91,212);doc.text('AttendEdge',M,y);
+  doc.setFont('helvetica','normal');doc.setFontSize(9.5);doc.setTextColor(92,97,120);doc.text('Smart Attendance Management',M,y+14);
+  doc.setDrawColor(214,208,196);doc.line(M,y+24,W-M,y+24);y+=50;
+  doc.setFont('helvetica','bold');doc.setFontSize(16);doc.setTextColor(27,35,64);doc.text(pdfSafe(rep.title),M,y);y+=19;
+  doc.setFont('helvetica','normal');doc.setFontSize(9.5);doc.setTextColor(60,65,85);
+  rep.meta.forEach(m=>{doc.text(pdfSafe(`${m[0]}: ${m[1]}`),M,y);y+=13;});
+  if(rep.summary.length){y+=5;doc.setFont('helvetica','bold');doc.setTextColor(27,35,64);
+   const lines=doc.splitTextToSize(pdfSafe(rep.summary.map(s=>`${s[0]}: ${s[1]}`).join('   |   ')),W-2*M);doc.text(lines,M,y);y+=lines.length*13;}
+  doc.autoTable({startY:y+8,head:[rep.columns.map(pdfSafe)],body:rep.rows.map(r=>r.map(pdfSafe)),styles:{fontSize:8.5,cellPadding:4,textColor:[27,35,64]},headStyles:{fillColor:[80,91,212],textColor:255},alternateRowStyles:{fillColor:[250,248,245]},margin:{left:M,right:M,bottom:40}});
+  const n=doc.internal.getNumberOfPages();
+  for(let i=1;i<=n;i++){doc.setPage(i);doc.setFontSize(8);doc.setTextColor(92,97,120);doc.text('AttendEdge prototype | fictional demo data',M,H-22);doc.text(`Page ${i} of ${n}`,W-M,H-22,{align:'right'});}
+  doc.save(rep.file+'.pdf');toast(`PDF downloaded: ${rep.file}.pdf`,'ok');
+ }catch(e){console.error(e);toast('PDF generation failed. Opening the print view instead.','warn');printReport(rep);}
+}
+function runReport(name,args,mode){
+ const a=args==='pdf'||!args?pdfArgs(name):args;
+ if(a.date&&!D.valid(a.date)){toast('Choose a valid date first.','bad');return;}
+ if(a.roll&&!Service.getStudent(a.roll)){toast('Choose a student first.','bad');return;}
+ const rep=Reports[name](a);
+ if(mode==='csv')exportCSV(rep);else if(mode==='print')printReport(rep);else exportPDF(rep);
+}
+/* ---------- shell ---------- */
+const PAGES=[['overview','Overview'],['daily','Daily Attendance'],['students','Students'],['weekly','Weekly Reports'],['monthly','Monthly Performance'],['semester','Semester Analytics'],['pdf','PDF Reports'],['device','Device Status'],['settings','Settings']];
+const isAuthed=()=>{try{return !!localStorage.getItem(AUTH_KEY);}catch(e){return !!window.__authMem;}};
+const demoNote=()=>`<p class="foot-note">Prototype data: all student names, emails and attendance history on this page are fictional and generated in your browser.</p>`;
+function sidebar(){
+ return `<aside class="sidebar" id="sidebar" aria-label="Main navigation"><div class="brand">${LOGO}<div><b>AttendEdge</b><span>Smart Attendance Management</span></div></div><hr>
+ <nav class="nav" aria-label="Sections">${PAGES.map(p=>`<a href="#/${p[0]}" ${UI.page===p[0]?'aria-current="page"':''}>${ic(p[0],19)}<span>${p[1]}</span></a>`).join('')}</nav>
+ <div class="side-foot"><div class="profile"><div class="avatar" aria-hidden="true">F</div><div><b>Faculty</b><span>Faculty portal · demo session</span></div></div>
+ <button class="btn btn-sm" style="width:100%;margin-top:10px" data-act="logout">${ic('logout',16)} Log out</button></div></aside><div class="scrim" data-act="closeNav"></div>`;
+}
+function header(){
+ const sel=DB.ui.selDate,n=clockNow(),h=+n.time.slice(0,2),s=DB.settings,label=PAGES.find(p=>p[0]===UI.page)[1],ov=UI.page==='overview';
+ const greet=h<12?'Good morning':h<17?'Good afternoon':'Good evening';
+ return `<header class="page-head"><div><div class="mono">${D.dayName(sel)} · ${ov?'Attendance overview':esc(label)}</div><h1>${ov?greet+', Faculty':esc(label)}</h1>
+ <div class="muted small">${esc(s.department)} · Semester ${esc(s.semester)} · ${esc(s.classSection)} · AY ${esc(s.academicYear)}</div></div>
+ <div class="head-ctl"><div class="field"><label for="selDate">Selected date</label><input id="selDate" class="input" type="date" data-bind="sel" value="${sel}"></div>
+ <span class="pill"><span class="dot" aria-hidden="true"></span>Demo mode</span>
+ <span class="pill">${ic('clock',14)}<span data-clock>${t12(n.time)}</span><span class="muted">${DB.ui.clock.mode==='real'?'system clock':'simulated'}</span></span></div></header>`;
+}
+
+/* ---------- OVERVIEW ---------- */
+function pageOverview(){
+ const d=DB.ui.selDate,info=sessionInfo(d),pc=presentCount(d),tot=DB.students.length,ab=tot-pc,tm=info.times;
+ const msg={open:`Scanner is accepting IDs until ${t12(tm.close)}.`,notstarted:d>today()?`Upcoming working day. Scanning opens at ${t12(tm.open)}.`:`Scanning opens at ${t12(tm.open)}.`,closed:`Scanning closed at ${t12(tm.close)}. Anyone without a scan stays Absent.`,nonworking:info.reason+'.'}[info.key];
+ const recent=Object.entries(recOn(d)).sort((a,b)=>b[1].t.localeCompare(a[1].t)).slice(0,6);
+ const sample=DB.students.slice(0,6),byRes=RES.map(r=>{const g=DB.students.filter(s=>s.residence===r);return {r,tot:g.length,p:g.filter(s=>recOn(d)[s.rollNumber]).length};});
+ const days=countedDays(D.add(d,-70),d).slice(-14);
+ const trend=chart({type:'bar',labels:days.map(x=>`${+x.slice(8)} ${D.monShort(+x.slice(0,4),+x.slice(5,7))}`),values:days.map(x=>presentCount(x)/tot*100),label:'Daily attendance percentage for recent working days'});
+ return `<div class="grid kpis">
+ <div class="card kpi"><div class="label">Total students</div><div class="v c-primary">${tot}</div><div class="s">25EV001 to 25EV063</div></div>
+ <div class="card kpi"><div class="label">Present</div><div class="v c-ok">${pc}</div><div class="s">register bit = 1</div></div>
+ <div class="card kpi"><div class="label">Absent</div><div class="v c-warn">${ab}</div><div class="s">register bit = 0</div></div>
+ <div class="card kpi"><div class="label">Attendance</div><div class="v c-primary">${(pc/tot*100).toFixed(pc%tot===0||pc===0?0:1)}%</div><div class="s">${esc(D.med(d))}</div></div></div>
+ <section class="banner" aria-label="Attendance session"><div><h2>Attendance session <span class="state ${info.key}">${info.label}</span></h2>
+ <p>Scanning window: ${t12(tm.open)} – ${t12(tm.close)}</p><p style="opacity:.92;font-size:13.5px">${esc(msg)}</p><span class="chip">Demo preview · Not connected to FPGA</span></div>
+ <a class="btn btn-white" href="#/daily">${ic('barcode',17)} Open scanner simulator</a></section>
+ <div class="grid g2">
+ <div class="stack">
+  <section class="card"><div class="card-h"><h2>${d===today()?"Today's attendance":'Attendance on '+esc(D.med(d))}</h2><a class="btn btn-sm" href="#/daily">View all ${tot}</a></div>
+  <div class="row spread label" style="padding-bottom:6px"><span>Roll number</span><span>Status</span></div>
+  <div class="list">${sample.map(s=>`<div><span class="row" style="gap:8px"><span class="rollc">${s.rollNumber}</span>${resBadge(s.residence)}</span>${recOn(d)[s.rollNumber]?badge('ok','Present · 1'):badge('warn','Absent · 0')}</div>`).join('')}</div>
+  <p class="muted small" style="margin-top:10px">Showing a sample of the ${tot}-student roster.</p></section>
+  <section class="card"><div class="card-h"><h2>Daily attendance preview</h2><span class="label">Last ${days.length||0} working days</span></div>${trend}
+  <p class="muted tiny" style="margin-top:6px">Bars in amber are below the ${DB.settings.threshold}% target. Seeded history is demo data.</p></section>
+ </div>
+ <div class="stack">
+  <section class="card"><div class="card-h"><h2>Recent activity</h2><span class="label">${esc(D.short(d))}</span></div>
+  ${recent.length?`<div class="list">${recent.map(([r,v])=>`<div><span><b>${esc(Service.getStudent(r).name)}</b><br><span class="rollc muted">${r}</span> ${resBadge(Service.getStudent(r).residence)}</span><span style="text-align:right">${t12(v.t)}<br>${badge('ok','Present')}</span></div>`).join('')}</div>`
+  :empty('No scans recorded for this date','Open the scanner simulator on Daily Attendance and scan a roll number inside the window.')}</section>
+  <section class="card"><div class="card-h"><h2>By residence</h2><span class="label">${esc(D.short(d))}</span></div><div class="list">${byRes.map(x=>`<div><span>${resBadge(x.r)} <span class="muted small">${x.p} of ${x.tot} present</span></span><b>${x.tot?(x.p/x.tot*100).toFixed(1):'0.0'}%</b></div>`).join('')}</div></section>
+  <section class="card"><div class="card-h"><h2>Quick links</h2></div><div class="quick">
+   <button class="btn" data-act="goDaily" data-f="present">${ic('check',16)} Present list</button>
+   <button class="btn" data-act="goDaily" data-f="absent">${ic('x',16)} Absent list</button>
+   <a class="btn" href="#/students">${ic('students',16)} Student roster</a>
+   <a class="btn" href="#/pdf">${ic('pdf',16)} PDF reports</a></div></section>
+ </div></div>${demoNote()}`;
+}
+
+/* ---------- DAILY ATTENDANCE ---------- */
+const SCAN_STATES={ready:['Ready','info','barcode'],scanning:['Scanning…','info','barcode'],present:['Present Recorded','ok','check'],duplicate:['Already Present','warn','alert'],invalid:['Invalid ID','bad','x'],notstarted:['Not Started','warn','clock'],closed:['Attendance Closed','bad','clock']};
+function dailyRows(d){return DB.students.map(s=>{const r=recOn(d)[s.rollNumber];return {roll:s.rollNumber,name:s.name,time:r?r.t:null,bit:r?1:0,residence:s.residence};});}
+function scannerPanel(){
+ const sc=UI.scan,n=clockNow(),info=sessionInfo(n.date),[lab,tn,icn]=SCAN_STATES[sc.state],roll=sc.roll.trim().toUpperCase(),stu=Service.getStudent(roll);
+ const bit=stu&&recOn(n.date)[roll]?1:0,real=DB.ui.clock.mode==='real';
+ const winTxt={open:'Open',notstarted:'Not started',closed:'Closed',nonworking:'No session today'}[info.key];
+ return `<section class="card" aria-labelledby="scanH"><div class="card-h"><h2 id="scanH">Simulate barcode scan</h2><span class="sim-tag">Simulation only</span></div>
+ <p class="muted small">This panel is a software simulation. It is not connected to the physical ESP32-CAM scanner or the Basys 3 FPGA.</p>
+ <div class="stack" style="margin-top:14px">
+ <div class="scan-state ${tn}" role="status" aria-live="polite">${ic(icn,26)}<div><b>${lab}</b><span class="small">${esc(sc.message)}</span></div></div>
+ <form data-form="scan" novalidate class="stack"><div class="field"><label for="scanRoll">Roll number</label>
+  <div class="row" style="flex-wrap:nowrap"><input id="scanRoll" class="input" list="rolls" data-bind="scan.roll" value="${esc(sc.roll)}" maxlength="12" autocomplete="off" spellcheck="false" aria-describedby="scanErr" ${sc.err?'aria-invalid="true"':''} placeholder="25EV001">
+  <button class="btn btn-primary" type="submit" ${sc.busy?'disabled':''}>${ic('barcode',16)} Scan</button></div>
+  <datalist id="rolls">${DB.students.map(s=>`<option value="${s.rollNumber}">`).join('')}</datalist><div id="scanErr" class="err">${esc(sc.err)}</div>
+  <span class="hint">Pick 25EV001–25EV063, or type any ID (try 25EV099) to test Invalid ID.</span></div></form>
+ <div><div class="label" style="margin-bottom:6px">Register bit · ${esc(stu?stu.rollNumber:'no valid roll')}</div>
+  <div class="bitbox">${sc.state==='present'&&sc.roll.trim().toUpperCase()===sc.lastRoll?`<div class="bit" aria-label="Before: 0">0</div><span class="bit-arrow">${ic('chevR',22)}</span>`:''}<div class="bit ${bit?'on':''}" aria-label="Current bit ${bit}">${stu?bit:'–'}</div>
+  <div class="small muted">${stu?esc(stu.name)+' · '+esc(stu.residence)+'<br>'+(bit?'Present (1)':'Absent (0)'):'Select a roster roll number'}</div></div></div>
+ <div class="card flat" style="padding:14px"><div class="row spread"><span class="label">Demo clock</span>
+  <div class="seg" role="group" aria-label="Clock source"><button type="button" data-act="clockMode" data-m="sim" aria-pressed="${!real}">Simulated</button><button type="button" data-act="clockMode" data-m="real" aria-pressed="${real}">System</button></div></div>
+  <form data-form="setTime" class="row" style="margin-top:10px;flex-wrap:nowrap"><div class="field grow"><label for="clk" class="sr">Simulated time</label><input id="clk" class="input" type="time" step="1" value="${real?n.time:DB.ui.clock.time}" ${real?'disabled':''} required></div>
+  <button class="btn" type="submit" ${real?'disabled':''}>Set time</button></form>
+  <div class="chips" style="margin-top:10px">${['07:59:59','08:00:00','08:10:00','08:35:00','08:35:01'].map(t=>`<button type="button" class="chip-btn" data-act="preset" data-t="${t}" ${real?'disabled':''}>${t}</button>`).join('')}</div>
+  <p class="hint" style="margin-top:10px">Scan date ${esc(D.med(n.date))} · window ${winTxt}. Rule: accepted when ${t12(info.times.open)} ≤ time ≤ ${t12(info.times.close)} (${info.times.close}:00 is the last accepted second).</p></div>
+ <div><div class="label" style="margin-bottom:4px">Event log (simulated)</div>${DB.events.length?`<ul class="log">${DB.events.slice(0,6).map(e=>`<li><span><span class="rollc">${esc(e.roll)}</span> <span class="muted">${esc(e.time)}</span></span>${badge(({present:'ok',duplicate:'warn',invalid:'bad',closed:'bad',notstarted:'warn',reset:'muted'})[e.state]||'info',({present:'Present',duplicate:'Already Present',invalid:'Invalid ID',closed:'Closed',notstarted:'Not Started',reset:'Day reset'})[e.state]||e.state)}</li>`).join('')}</ul>`:'<p class="muted small">No scans yet.</p>'}</div>
+ </div></section>`;
+}
+function registerGrid(){
+ const n=clockNow(),roll=UI.scan.roll.trim().toUpperCase();
+ return `<section class="card"><div class="card-h"><h2>Attendance register</h2><span class="label">63 × 1-bit flip-flops · ${esc(D.med(n.date))}</span></div>
+ <div class="regs">${DB.students.map((s,i)=>{const b=recOn(n.date)[s.rollNumber]?1:0;return `<button class="reg ${b?'on':''} ${s.residence==='Hosteller'?'h':''} ${roll===s.rollNumber?'sel':''}" data-act="pickRoll" data-roll="${s.rollNumber}" title="${s.rollNumber} (${s.residence}): ${b}" aria-label="${s.rollNumber}, ${s.residence}, bit ${b}">${i+1}</button>`;}).join('')}</div>
+ <p class="hint" style="margin-top:8px">Green = 1 (Present). Blue underline = Hosteller. Select a cell to load its roll number in the scanner.</p></section>`;
+}
+function pageDaily(){
+ const q=UI.daily,d=DB.ui.selDate,all=dailyRows(d),pc=all.filter(r=>r.bit).length,info=sessionInfo(d);
+ const rows=all.filter(r=>(q.filter==='all'||(q.filter==='present'?r.bit:!r.bit))&&(!q.res||r.residence===q.res)&&(!q.q||(r.roll+' '+r.name+' '+r.residence).toLowerCase().includes(q.q.trim().toLowerCase())));
+ const cols=[{key:'roll',label:'Roll number',html:r=>rollc(r.roll)},
+  {key:'name',label:'Student name',html:r=>`<button class="th-btn" style="font-weight:500" data-act="openStudent" data-roll="${r.roll}">${esc(r.name)}</button>`},
+  {key:'residence',label:'Residence',html:r=>resBadge(r.residence)},
+  {key:'time',label:'Scan time',html:r=>r.time?t12(r.time):'<span class="muted">—</span>'},
+  {key:'bit',label:'Status',html:r=>r.bit?badge('ok','Present · 1'):badge('warn','Absent · 0')},
+  {key:'act',label:'Actions',nosort:true,html:r=>`<span class="row" style="gap:6px;flex-wrap:nowrap"><button class="icon-btn" data-act="openStudent" data-roll="${r.roll}" aria-label="Open profile for ${r.roll}" title="Student profile">${ic('user',16)}</button><button class="icon-btn" data-act="scanPrefill" data-roll="${r.roll}" aria-label="Load ${r.roll} into scanner" title="Load into scanner">${ic('barcode',16)}</button><button class="icon-btn" data-act="report" data-r="dailyStudent" data-args='${esc(JSON.stringify({roll:r.roll,date:d}))}' aria-label="Download daily PDF for ${r.roll}" title="Daily PDF">${ic('file',16)}</button></span>`}];
+ const ht=all.filter(r=>r.residence==='Hosteller'),dt=all.filter(r=>r.residence!=='Hosteller'),hp=ht.filter(r=>r.bit).length,dp=dt.filter(r=>r.bit).length,canReset=d>=today(),seg=(f,l,c)=>`<button data-act="setFilter" data-f="${f}" aria-pressed="${q.filter===f}">${l} ${c}</button>`;
+ return `<div class="notice info" style="margin-bottom:16px">${ic('info',18)}<div>Session for ${esc(D.long(d))}: <b>${info.label}</b>${info.reason?' · '+esc(info.reason):''}. Scans are always stamped with the demo clock and checked against the ${t12(info.times.open)}–${t12(info.times.close)} window.</div></div>
+ <div class="grid daily-grid"><div class="stack" style="min-width:0">
+ <section class="card"><div class="toolbar">
+  <div class="field"><label for="dd">Date</label><div class="row" style="flex-wrap:nowrap;gap:6px"><button class="icon-btn" data-act="shiftDate" data-d="-1" aria-label="Previous day">${ic('chevL',16)}</button><input id="dd" class="input" style="width:auto" type="date" data-bind="sel" value="${d}"><button class="icon-btn" data-act="shiftDate" data-d="1" aria-label="Next day">${ic('chevR',16)}</button></div></div>
+  <div class="field search"><label for="dq">Search</label><div style="position:relative">${ic('search',16)}<input id="dq" class="input" style="padding-left:36px" type="search" data-bind="daily.q" value="${esc(q.q)}" placeholder="Roll number or name"></div></div>
+  <div class="field"><span class="label">Status</span><div class="seg" role="group" aria-label="Status filter">${seg('all','All',all.length)}${seg('present','Present',pc)}${seg('absent','Absent',all.length-pc)}</div></div></div>
+ <div class="toolbar">${resSel('dr','daily.res',q.res)}<div class="field"><label for="ds">Rows per page</label><select id="ds" class="select" data-bind="daily.size">${[10,25,63].map(n=>`<option value="${n}" ${q.size===n?'selected':''}>${n===63?'All 63':n}</option>`).join('')}</select></div>
+  <button class="btn" data-act="report" data-mode="csv" data-r="dailyAll" data-args='${esc(JSON.stringify({date:d}))}'>${ic('download',16)} Export CSV</button>
+  <button class="btn" data-act="report" data-mode="pdf" data-r="dailyAll" data-args='${esc(JSON.stringify({date:d}))}'>${ic('pdf',16)} Export PDF</button>
+  <button class="btn btn-danger" data-act="resetDay" ${canReset?'':'disabled title="Historical records are protected"'}>${ic('reset',16)} Reset demo day</button></div>
+ <div class="row small" style="margin-bottom:10px"><b>${pc}</b> present · <b>${all.length-pc}</b> absent · <b>${(pc/all.length*100).toFixed(1)}%</b> attendance · hostellers <b>${hp}</b>/${ht.length} · day scholars <b>${dp}</b>/${dt.length} present · showing ${rows.length} of ${all.length}</div>
+ ${table('daily',{cols,rows,size:q.size,caption:'Attendance for '+d,rowCls:r=>UI.scan.flash===r.roll&&d===today()?'flash':''})}</section></div>
+ <div class="stack sticky">${scannerPanel()}${registerGrid()}</div></div>${demoNote()}`;
+}
+
+/* ---------- STUDENTS ---------- */
+function pageStudents(){
+ const q=UI.stu,st=classStats(DB.settings.semesterStart,DB.settings.semesterEnd).map,uniq=k=>[...new Set(DB.students.map(s=>s[k]))].sort();
+ const rows=DB.students.filter(s=>(!q.dept||s.department===q.dept)&&(!q.cls||s.classSection===q.cls)&&(!q.sem||s.semester===q.sem)&&(!q.res||s.residence===q.res)&&(!q.q||(s.rollNumber+' '+s.name+' '+s.residence).toLowerCase().includes(q.q.trim().toLowerCase())));
+ const sel=(id,bind,label,opts,val)=>`<div class="field"><label for="${id}">${label}</label><select id="${id}" class="select" data-bind="${bind}"><option value="">All</option>${opts.map(o=>`<option ${val===o?'selected':''}>${esc(o)}</option>`).join('')}</select></div>`;
+ const cols=[{key:'rollNumber',label:'Roll number',html:r=>rollc(r.rollNumber)},{key:'name',label:'Name',html:r=>`<button class="th-btn" style="font-weight:600" data-act="openStudent" data-roll="${r.rollNumber}">${esc(r.name)}</button>`},
+  {key:'email',label:'Email'},{key:'department',label:'Department'},{key:'classSection',label:'Class / section'},{key:'semester',label:'Sem'},{key:'residence',label:'Residence',html:r=>r.residence==='Hosteller'?badge('info','Hosteller'):badge('muted','Day Scholar')},
+  {key:'pct',label:'Semester %',val:r=>st[r.rollNumber].pct,cls:'num',html:r=>`<span class="${st[r.rollNumber].pct!==null&&st[r.rollNumber].pct<DB.settings.threshold?'c-warn':'c-ok'}" style="font-weight:600">${pctText(st[r.rollNumber].pct)}</span>`},
+  {key:'placeholder',label:'Data',val:r=>r.placeholder?0:1,html:r=>r.placeholder?badge('muted','Placeholder'):badge('info','Edited')},
+  {key:'act',label:'',nosort:true,html:r=>`<button class="btn btn-sm" data-act="openStudent" data-roll="${r.rollNumber}">${ic('edit',14)} Open</button>`}];
+ return `<section class="card"><div class="toolbar"><div class="field search"><label for="sq">Search</label><div style="position:relative">${ic('search',16)}<input id="sq" class="input" style="padding-left:36px" type="search" data-bind="stu.q" value="${esc(q.q)}" placeholder="Roll number or name"></div></div>
+ ${sel('sd','stu.dept','Department',uniq('department'),q.dept)}${sel('sc','stu.cls','Class / section',uniq('classSection'),q.cls)}${sel('ss','stu.sem','Semester',uniq('semester'),q.sem)}${sel('sr','stu.res','Residence',RES,q.res)}</div>
+ <div class="toolbar"><button class="btn" data-act="exportRoster">${ic('download',16)} Export roster CSV</button><button class="btn" data-act="importRoster">${ic('upload',16)} Import roster CSV</button><input type="file" id="rosterFile" accept=".csv,text/csv" class="sr" tabindex="-1" data-file="roster" aria-label="Choose roster CSV file">
+ <span class="hint grow">Import updates the 63 existing roll numbers by matching <b>rollNumber</b>. Columns: rollNumber, name, email, department, classSection, semester, residence (Hosteller or Day Scholar). Names shown here are fictional placeholders.</span></div>
+ <div class="row small" style="margin-bottom:10px"><b>${rows.filter(r=>r.residence==='Hosteller').length}</b> hostellers · <b>${rows.filter(r=>r.residence==='Day Scholar').length}</b> day scholars · showing ${rows.length} of ${DB.students.length}</div>
+ ${table('students',{cols,rows,size:25,caption:'Student roster'})}</section>${demoNote()}`;
+}
+function studentModal(roll){
+ const s=Service.getStudent(roll),st=classStats(DB.settings.semesterStart,DB.settings.semesterEnd).map[roll],t=today(),last=countedDays(D.add(t,-45),t).slice(-14),n=clockNow();
+ const f=(id,l,v,extra='')=>`<div class="field"><label for="${id}">${l}</label><input id="${id}" name="${id}" class="input" value="${esc(v)}" ${extra}></div>`;
+ return `<div class="row spread"><div><h2 style="margin:0">${esc(s.name)}</h2><span class="rollc muted">${s.rollNumber}</span></div><span class="row" style="gap:6px">${s.residence==='Hosteller'?badge('info','Hosteller'):badge('muted','Day Scholar')}${s.placeholder?badge('muted','Fictional placeholder'):badge('info','Edited by faculty')}</span></div>
+ <div class="grid g3" style="margin:16px 0">
+  <div class="card flat kpi"><div class="label">Semester</div><div class="v ${st.pct!==null&&st.pct<DB.settings.threshold?'c-warn':'c-ok'}" style="font-size:24px">${pctText(st.pct)}</div></div>
+  <div class="card flat kpi"><div class="label">Present / working</div><div class="v" style="font-size:24px">${st.present} / ${st.working}</div></div>
+  <div class="card flat kpi"><div class="label">Register bit today</div><div class="v" style="font-size:24px">${recOn(n.date)[roll]?'1':'0'}</div></div></div>
+ <div class="label" style="margin-bottom:6px">Last ${last.length} completed working days</div><div class="daystrip" style="margin-bottom:18px">${last.map(d=>`<span class="${recOn(d)[roll]?'p':'a'}" title="${D.short(d)}: ${recOn(d)[roll]?'Present':'Absent'}">${+d.slice(8)}</span>`).join('')||'<span class="muted small" style="width:auto;background:none">No completed days yet</span>'}</div>
+ <form data-form="student" novalidate data-roll="${roll}"><div class="formgrid">${f('roll','Roll number (fixed)',s.rollNumber,'disabled')}${f('name','Name',s.name,'required maxlength="60"')}${f('email','Email',s.email,'type="email" required maxlength="80"')}${f('department','Department',s.department,'required maxlength="60"')}${f('classSection','Class / section',s.classSection,'required maxlength="30"')}${f('semester','Semester (1–8)',s.semester,'inputmode="numeric" required maxlength="1"')}<div class="field"><label for="residence">Residence</label><select id="residence" name="residence" class="select">${RES.map(o=>`<option ${s.residence===o?'selected':''}>${o}</option>`).join('')}</select></div></div>
+ <div id="stuErr" class="err" role="alert"></div><p class="hint">The roll number is the barcode ID mapped in the FPGA lookup, so it cannot be edited here.</p>
+ <div class="dlg-actions"><button type="button" class="btn" data-act="report" data-r="monthlyStudent" data-args='${esc(JSON.stringify({roll,y:+t.slice(0,4),m:+t.slice(5,7)}))}'>${ic('pdf',16)} Monthly PDF</button><button type="button" class="btn" data-act="report" data-r="semesterStudent" data-args='${esc(JSON.stringify({roll}))}'>${ic('pdf',16)} Semester PDF</button><button type="button" class="btn" data-act="dlgCancel">Close</button><button class="btn btn-primary" type="submit">Save changes</button></div></form>`;
+}
+
+/* ---------- shared report-page bits ---------- */
+const bandSel=(id,bind,v)=>`<div class="field"><label for="${id}">Attendance filter</label><select id="${id}" class="select" data-bind="${bind}"><option value="all" ${v==='all'?'selected':''}>All students</option><option value="below" ${v==='below'?'selected':''}>Below ${DB.settings.threshold}%</option><option value="above" ${v==='above'?'selected':''}>${DB.settings.threshold}% or above</option><option value="na" ${v==='na'?'selected':''}>Not Available</option></select></div>`;
+const searchF=(id,bind,v)=>`<div class="field search"><label for="${id}">Search</label><div style="position:relative">${ic('search',16)}<input id="${id}" class="input" style="padding-left:36px" type="search" data-bind="${bind}" value="${esc(v)}" placeholder="Roll number or name"></div></div>`;
+function statTable(id,map,q,band,extraCols=[],res=''){
+ const rows=DB.students.filter(s=>(!q||(s.rollNumber+' '+s.name+' '+s.residence).toLowerCase().includes(q.trim().toLowerCase()))&&inBand(map[s.rollNumber].pct,band)&&(!res||s.residence===res)).map(s=>Object.assign({roll:s.rollNumber,name:s.name},map[s.rollNumber]));
+ const cols=[{key:'roll',label:'Roll number',html:r=>rollc(r.roll)},{key:'name',label:'Student name'},{key:'residence',label:'Residence',html:r=>resBadge(Service.getStudent(r.roll).residence),val:r=>Service.getStudent(r.roll).residence},{key:'working',label:'Working days',cls:'num'},{key:'present',label:'Present',cls:'num'},{key:'absent',label:'Absent',cls:'num'},{key:'pct',label:'Attendance',html:r=>bar(r.pct)},...extraCols];
+ return table(id,{cols,rows,size:25,caption:id});
+}
+const kpi3=(a,b,c)=>`<div class="grid g3" style="margin-bottom:16px">${[a,b,c].map(k=>`<div class="card kpi"><div class="label">${k[0]}</div><div class="v ${k[2]||''}" style="font-size:26px">${k[1]}</div>${k[3]?`<div class="s">${k[3]}</div>`:''}</div>`).join('')}</div>`;
+const exportBtns=(name,args)=>{const a=esc(JSON.stringify(args));return `<button class="btn" data-act="report" data-mode="csv" data-r="${name}" data-args='${a}'>${ic('download',16)} Export CSV</button><button class="btn btn-primary" data-act="report" data-mode="pdf" data-r="${name}" data-args='${a}'>${ic('pdf',16)} Export PDF</button>`;};
+
+/* ---------- WEEKLY ---------- */
+function pageWeekly(){
+ const w=UI.weekly,ws=D.weekStart(w.date),we=D.add(ws,6),st=classStats(ws,we),tot=DB.students.length,sm=summarize(st.map);
+ const rows=D.range(ws,we).map(d=>{const wk=isWorkingDay(d),done=completed(d),p=presentCount(d),hp=Object.keys(recOn(d)).filter(x=>Service.getStudent(x).residence==='Hosteller').length;return {date:d,wk,done,p,hp,dp:p-hp,pct:wk&&done?p/tot*100:null,type:wk?'Working day':(holidayOf(d)?holidayOf(d).label:'Non-working')};});
+ const cols=[{key:'date',label:'Date',html:r=>D.short(r.date)},{key:'type',label:'Day type',html:r=>r.wk?badge('info','Working day'):badge('muted',r.type)},
+  {key:'st',label:'Session',nosort:true,html:r=>!r.wk?'<span class="muted">No session</span>':r.done?'Completed':'Pending'},
+  {key:'p',label:'Present',cls:'num',html:r=>r.wk&&r.done?r.p:'—'},{key:'a',label:'Absent',cls:'num',html:r=>r.wk&&r.done?tot-r.p:'—'},{key:'hp',label:'Hostellers present',cls:'num',html:r=>r.wk&&r.done?r.hp:'—'},{key:'dp',label:'Day scholars present',cls:'num',html:r=>r.wk&&r.done?r.dp:'—'},{key:'pct',label:'Attendance',html:r=>r.pct===null?'<span class="muted small">—</span>':bar(r.pct)}];
+ return `<section class="card" style="margin-bottom:16px"><div class="toolbar"><div class="field"><label for="wd">Any date in the week</label><div class="row" style="flex-wrap:nowrap;gap:6px"><button class="icon-btn" data-act="shiftWeek" data-d="-7" aria-label="Previous week">${ic('chevL',16)}</button><input id="wd" class="input" style="width:auto" type="date" data-bind="weekly.date" value="${w.date}"><button class="icon-btn" data-act="shiftWeek" data-d="7" aria-label="Next week">${ic('chevR',16)}</button></div></div>
+ <div class="field"><span class="label">Selected week</span><b>${D.med(ws)} – ${D.med(we)}</b></div><div class="grow"></div>${exportBtns('weeklyClass',{date:w.date})}</div>
+ <p class="hint">Only configured working days are counted (${DB.settings.workingWeekdays.map(x=>WD[x]).join(', ')} minus holidays). Days that have not finished yet are pending and not counted.</p></section>
+ ${kpi3(['Working days counted',st.days.length,'c-primary',`of ${scheduledDays(ws,we).length} scheduled this week`],['Class average',pctText(sm.avg),'c-ok'],[`Below ${DB.settings.threshold}%`,sm.below,'c-warn','students'])}
+ ${resLine(st.map)}<div class="grid g2e" style="margin-bottom:16px"><section class="card"><div class="card-h"><h2>Daily totals</h2></div>${table('wk-days',{cols,rows,size:0,caption:'Daily totals for the selected week'})}</section>
+ <section class="card"><div class="card-h"><h2>Weekly trend</h2><span class="label">Attendance % by day</span></div>${chart({type:'bar',labels:rows.map(r=>WD[D.dow(r.date)]+' '+(+r.date.slice(8))),values:rows.map(r=>r.pct),label:'Weekly attendance trend'})}</section></div>
+ <section class="card"><div class="card-h"><h2>Per-student weekly summary</h2></div><div class="toolbar">${searchF('wq','weekly.q',w.q)}${bandSel('wb','weekly.band',w.band)}${resSel('wr','weekly.res',w.res)}</div>${statTable('wk-stu',st.map,w.q,w.band,[],w.res)}</section>${demoNote()}`;
+}
+
+/* ---------- MONTHLY ---------- */
+const monthSel=(bm,by,m,y)=>`<div class="field"><label for="${bm}">Month</label><select id="${bm}" class="select" data-bind="${bm}">${Array.from({length:12},(_,i)=>`<option value="${i+1}" ${m===i+1?'selected':''}>${D.mon(2000,i+1).split(' ')[0]}</option>`).join('')}</select></div><div class="field"><label for="${by}">Year</label><select id="${by}" class="select" data-bind="${by}">${[-2,-1,0,1].map(o=>{const yy=+today().slice(0,4)+o;return `<option ${y===yy?'selected':''}>${yy}</option>`;}).join('')}</select></div>`;
+function pageMonthly(){
+ const q=UI.monthly,[a,b]=D.monthRange(q.y,q.m),st=classStats(a,b),sm=summarize(st.map),tot=DB.students.length,sch=scheduledDays(a,b).length,roll=q.student,me=st.map[roll],sd=studentDays(roll,a,b).filter(x=>x.wk);
+ const act=r=>`<button class="icon-btn" data-act="report" data-mode="pdf" data-r="monthlyStudent" data-args='${esc(JSON.stringify({roll:r.roll,y:q.y,m:q.m}))}' aria-label="Monthly PDF for ${r.roll}" title="Monthly PDF">${ic('pdf',16)}</button>`;
+ return `<section class="card" style="margin-bottom:16px"><div class="toolbar">${monthSel('monthly.m','monthly.y',q.m,q.y)}<div class="grow"></div>${exportBtns('monthlyClass',{y:q.y,m:q.m}).replace('Export PDF','Download full-class PDF')}</div></section>
+ ${kpi3(['Working days counted',st.days.length,'c-primary',`of ${sch} scheduled in ${D.mon(q.y,q.m)}`],['Class average',pctText(sm.avg),'c-ok'],[`Below ${DB.settings.threshold}%`,sm.below,'c-warn','students'])}
+ ${resLine(st.map)}<section class="card" style="margin-bottom:16px"><div class="card-h"><h2>Monthly attendance trend</h2><span class="label">Class attendance % per working day</span></div>${chart({type:'line',labels:st.days.map(d=>String(+d.slice(8))),values:st.days.map(d=>presentCount(d)/tot*100),label:'Monthly attendance trend'})}</section>
+ <section class="card" style="margin-bottom:16px"><div class="card-h"><h2>Individual performance</h2></div><div class="toolbar"><div class="field" style="min-width:260px"><label for="ms">Student</label><select id="ms" class="select" data-bind="monthly.student">${DB.students.map(s=>`<option value="${s.rollNumber}" ${s.rollNumber===roll?'selected':''}>${s.rollNumber} · ${esc(s.name)}</option>`).join('')}</select></div>
+ <button class="btn btn-primary" data-act="report" data-mode="pdf" data-r="monthlyStudent" data-args='${esc(JSON.stringify({roll,y:q.y,m:q.m}))}'>${ic('pdf',16)} Download student PDF</button>${resBadge(Service.getStudent(roll).residence)}</div>
+ <div class="grid g3" style="margin-bottom:12px"><div class="row"><span class="label">Present</span><b>${me.present}</b></div><div class="row"><span class="label">Absent</span><b>${me.absent}</b></div><div class="row"><span class="label">Percentage</span><b>${pctText(me.pct)}</b></div></div>
+ ${bar(me.pct)}<div class="daystrip" style="margin-top:12px">${sd.map(x=>`<span class="${x.status==='Present'?'p':x.status==='Absent'?'a':''}" title="${D.short(x.date)}: ${x.status}">${+x.date.slice(8)}</span>`).join('')||'<span class="muted small" style="width:auto;background:none">No working days this month</span>'}</div></section>
+ <section class="card"><div class="card-h"><h2>Class monthly report</h2></div><div class="toolbar">${searchF('mq','monthly.q',q.q)}${bandSel('mb','monthly.band',q.band)}${resSel('mr','monthly.res',q.res)}</div>${statTable('mo-stu',st.map,q.q,q.band,[{key:'act',label:'PDF',nosort:true,html:act}],q.res)}</section>${demoNote()}`;
+}
+
+/* ---------- SEMESTER ---------- */
+function pageSemester(){
+ const q=UI.sem,s=DB.settings,configured=q.sem===s.semester&&q.ay===s.academicYear,tot=DB.students.length;
+ const a=s.semesterStart,b=s.semesterEnd;
+ const st=configured?classStats(a,b):{days:[],map:Object.fromEntries(DB.students.map(x=>[x.rollNumber,{working:0,present:0,absent:0,pct:null}]))};
+ const sm=summarize(st.map);let wk=[];
+ if(configured){for(let ws=D.weekStart(a);ws<=b;ws=D.add(ws,7)){const ds=countedDays(ws<a?a:ws,D.add(ws,6)>b?b:D.add(ws,6));wk.push({l:`${+ws.slice(8)} ${D.monShort(+ws.slice(0,4),+ws.slice(5,7))}`,v:ds.length?ds.reduce((x,d)=>x+presentCount(d),0)/(ds.length*tot)*100:null});}}
+ const yy=+today().slice(0,4),ays=[...new Set([`${yy-2}-${pad((yy-1)%100)}`,`${yy-1}-${pad(yy%100)}`,`${yy}-${pad((yy+1)%100)}`,s.academicYear])].sort();
+ return `<section class="card" style="margin-bottom:16px"><div class="toolbar"><div class="field"><label for="se">Semester</label><select id="se" class="select" data-bind="sem.sem">${[1,2,3,4,5,6,7,8].map(n=>`<option ${q.sem===String(n)?'selected':''}>${n}</option>`).join('')}</select></div>
+ <div class="field"><label for="sa">Academic year</label><select id="sa" class="select" data-bind="sem.ay">${ays.map(y=>`<option ${q.ay===y?'selected':''}>${y}</option>`).join('')}</select></div><div class="grow"></div>
+ ${configured?exportBtns('semesterClass',{}):`<button class="btn" disabled>${ic('download',16)} Export CSV</button><button class="btn btn-primary" disabled>${ic('pdf',16)} Export PDF</button>`}</div>
+ ${configured?`<p class="hint">Semester window ${D.med(a)} – ${D.med(b)} · formula: present working days ÷ total working days × 100. Only completed working days are counted.</p>`
+ :`<div class="notice">${ic('alert',18)}<div>No working days are configured for Semester ${esc(q.sem)}, AY ${esc(q.ay)}, so percentages show <b>Not Available</b>. The prototype holds the calendar for Semester ${esc(s.semester)}, AY ${esc(s.academicYear)} (change it in Settings).</div></div>`}</section>
+ ${kpi3(['Working days counted',configured?st.days.length:'Not Available','c-primary',configured?`of ${scheduledDays(a,b).length} scheduled in the semester`:''],['Class average',pctText(sm.avg),'c-ok'],[`Below ${s.threshold}%`,configured?sm.below:'Not Available','c-warn',configured?'students':''])}
+ ${resLine(st.map)}<section class="card" style="margin-bottom:16px"><div class="card-h"><h2>Class overview</h2><span class="label">Average attendance % by week</span></div>${configured?chart({type:'line',labels:wk.map(x=>x.l),values:wk.map(x=>x.v),label:'Semester weekly average attendance'}):empty('Not Available','Select the configured semester and academic year to see analytics.')}</section>
+ <section class="card"><div class="card-h"><h2>Student-by-student semester table</h2></div><div class="toolbar">${searchF('sq2','sem.q',q.q)}${bandSel('sb','sem.band',q.band)}${resSel('sr2','sem.res',q.res)}</div>${statTable('se-stu',st.map,q.q,q.band,[],q.res)}</section>${demoNote()}`;
+}
+
+/* ---------- PDF REPORTS ---------- */
+function pagePdf(){
+ const p=UI.pdf,dateF=(id,bind,v)=>`<div class="field"><label for="${id}">Date</label><input id="${id}" class="input" type="date" data-bind="${bind}" value="${v}"></div>`;
+ const card=(title,desc,name,inputs,csv=true)=>`<section class="card"><div class="row" style="flex-wrap:nowrap;align-items:flex-start"><span style="color:var(--primary)">${ic('pdf',22)}</span><div><h2 style="font-size:16px">${title}</h2><p class="muted small">${desc}</p></div></div><div class="toolbar" style="margin:14px 0 0">${inputs}</div>
+ <div class="row" style="margin-top:12px"><button class="btn btn-primary" data-act="report" data-mode="pdf" data-r="${name}" data-args="pdf">${ic('download',16)} Download PDF</button><button class="btn" data-act="report" data-mode="print" data-r="${name}" data-args="pdf">${ic('printer',16)} Print view</button>${csv?`<button class="btn" data-act="report" data-mode="csv" data-r="${name}" data-args="pdf">CSV</button>`:''}</div></section>`;
+ return `<section class="card" style="margin-bottom:16px"><div class="toolbar"><div class="field" style="min-width:280px;flex:1"><label for="ps">Student for individual reports</label><select id="ps" class="select" data-bind="pdf.student">${DB.students.map(s=>`<option value="${s.rollNumber}" ${s.rollNumber===p.student?'selected':''}>${s.rollNumber} · ${esc(s.name)}</option>`).join('')}</select></div></div>
+ <p class="hint">Reports use the real PDF library when it loads. If it cannot load (for example you are offline), the Download button opens a print view so you can choose Save as PDF.</p></section>
+ <div class="grid g2e">
+ ${card('Student daily report','One student, one day: status, scan time and session window.','dailyStudent',dateF('p1','pdf.day',p.day))}
+ ${card('Student weekly report','Day-by-day status for the week containing the chosen date.','weeklyStudent',dateF('p2','pdf.week',p.week))}
+ ${card('Student monthly report','Working days, present, absent and percentage for a month.','monthlyStudent',monthSel('pdf.m','pdf.y',p.m,p.y))}
+ ${card('Student semester report',`Month-by-month totals for Semester ${esc(DB.settings.semester)}, AY ${esc(DB.settings.academicYear)}.`,'semesterStudent','<span class="hint">Uses the semester configured in Settings.</span>')}
+ ${card('Daily present list','Everyone with register bit 1 on the chosen date, with scan times.','presentList',dateF('p3','pdf.pDate',p.pDate))}
+ ${card('Daily absent list','Everyone with register bit 0 on the chosen date.','absentList',dateF('p4','pdf.aDate',p.aDate))}
+ ${card('Monthly report: all 63 students','Class-wide table with working days, present, absent and percentage.','monthlyClass',monthSel('pdf.cm','pdf.cy',p.cm,p.cy))}
+ ${card('Semester report: all 63 students','Class-wide semester table using configured working days.','semesterClass','<span class="hint">Uses the semester configured in Settings.</span>')}
+ </div>${demoNote()}`;
+}
+/* ---------- DEVICE STATUS ---------- */
+function pageDevice(){
+ const s=DB.settings,last=DB.events[0],sc=UI.scan.state,clk=DB.ui.clock;
+ const pos={ready:'IDLE',scanning:'RX_ID',invalid:'VALIDATE_ID',notstarted:'CHECK_WINDOW',closed:'CHECK_WINDOW',duplicate:'CHECK_BIT',present:'SET_BIT'}[sc];
+ const devs=[['barcode','ESP32-CAM barcode scanner','Not Connected','muted','No firmware link yet. The Simulate Barcode Scan panel stands in for its output.'],
+  ['device','Basys 3 Artix-7 FPGA','Not Connected','muted','Verilog FSM and registers are modelled in software on this page only.'],
+  ['link','UART link','Not Connected','muted','No serial bridge is configured, so no frames are being received.'],
+  ['clock','Time source','Demo Mode','warn',clk.mode==='real'?`Browser system clock (${s.timezone}). Not a hardware RTC.`:`Simulated clock set to ${t12(clk.time)}.`],
+  ['server','Backend','Demo Mode','warn','Data lives in this browser (localStorage). No Flask or SQLite server is running.']];
+ const seen=new Set();let dup=0;Object.values(DB.records).forEach(day=>Object.keys(day).forEach(r=>{}));
+ const known=new Set(DB.students.map(x=>x.rollNumber));let orphan=0;Object.values(DB.records).forEach(day=>Object.keys(day).forEach(r=>{if(!known.has(r))orphan++;}));
+ DB.students.forEach(x=>{if(seen.has(x.rollNumber))dup++;seen.add(x.rollNumber);});
+ const ok=(t,good,txt)=>`<li><span class="dot ${good?'ok':'bad'}"></span><span>${txt}</span><span class="grow"></span>${badge(good?'ok':'bad',t)}</li>`;
+ const na=txt=>`<li><span class="dot off"></span><span>${txt}</span><span class="grow"></span>${badge('muted','Not tested')}</li>`;
+ const nodes=[['ID Card Barcode','Student presents card','Physical'],['ESP32-CAM Decoder','Decodes roll number','Not connected'],['UART','Serial link','Not connected'],['Basys 3 FPGA','FSM / registers (Verilog)','Not connected'],['Backend / Database','Flask + SQLite (planned)','Demo: localStorage'],['Faculty Dashboard','This web app','Running']];
+ return `<div class="notice" style="margin-bottom:16px">${ic('alert',18)}<div><b>No live hardware telemetry.</b> Every hardware status below stays Not Connected or Demo Mode until firmware and the FPGA design are genuinely integrated.</div></div>
+ <div class="grid g3" style="margin-bottom:16px">${devs.map(d=>`<section class="card dev-card"><div class="row spread"><span class="ic">${ic(d[0],20)}</span>${badge(d[3],d[2])}</div><h2 style="font-size:16px">${d[1]}</h2><p class="muted small">${esc(d[4])}</p></section>`).join('')}
+ <section class="card dev-card"><div class="row spread"><span class="ic">${ic('clock',20)}</span>${badge('info','Configured')}</div><h2 style="font-size:16px">Attendance window</h2><p class="muted small">${t12(s.openingTime)} – ${t12(s.closingTime)} (${esc(s.timezone)}). Accepted when open ≤ time ≤ close; ${s.closingTime}:00 is the last accepted second.</p></section></div>
+ <section class="card" style="margin-bottom:16px"><div class="card-h"><h2>Data flow</h2><span class="label">Planned architecture</span></div><div class="flow">${nodes.map((n,i)=>`${i?'<span class="arrow" aria-hidden="true">→</span>':''}<div class="node"><b>${n[0]}</b><span>${n[1]}</span><div style="margin-top:8px">${badge(i===5?'ok':i===4?'warn':'muted',n[2])}</div></div>`).join('')}</div></section>
+ <div class="grid g2e" style="margin-bottom:16px"><section class="card"><div class="card-h"><h2>Last event</h2>${badge('warn','Simulated')}</div>${last?`<dl class="kv"><dt>Time</dt><dd>${esc(last.date)} ${esc(last.time)}</dd><dt>Roll</dt><dd class="rollc">${esc(last.roll)}</dd><dt>Result</dt><dd>${esc(last.message)}</dd></dl>`:empty('No events yet','Scan from Daily Attendance to create a simulated event. No hardware events exist.')}</section>
+ <section class="card"><div class="card-h"><h2>Protocol summary</h2>${badge('muted','Design proposal')}</div><dl class="kv"><dt>Link</dt><dd>UART, ESP32-CAM to Basys 3 (planned)</dd><dt>Framing</dt><dd>115200 baud, 8N1 (proposed)</dd><dt>Payload</dt><dd>ASCII roll number plus newline, e.g. 25EV001</dd><dt>FPGA path</dt><dd>uart_rx → id_parser → roster lookup → window comparator → attendance FSM → 63 × 1-bit registers</dd><dt>Reply</dt><dd>ACK/NACK byte (not implemented)</dd></dl><p class="hint" style="margin-top:8px">Values are planning notes and have not been checked against firmware.</p></section></div>
+ <section class="card" style="margin-bottom:16px"><div class="card-h"><h2>FSM state (software model)</h2><span class="label">Follows the scan simulator</span></div><div class="fsm">${['IDLE','RX_ID','VALIDATE_ID','CHECK_WINDOW','CHECK_BIT','SET_BIT'].map(x=>`<span class="${x===pos?'on':''}">${x}</span>`).join('')}</div>
+ <p class="hint" style="margin-top:10px">Order: receive ID, validate against the 63 roll numbers, check the time window, check the existing bit (duplicate), then set the bit from 0 to 1. Rejections return to IDLE without changing any bit.</p></section>
+ <div class="grid g2e"><section class="card"><div class="card-h"><h2>Prototype self-checks</h2>${badge('info','Run in this browser')}</div><ul class="diag">
+ ${ok(DB.students.length===63?'Pass':'Fail',DB.students.length===63,`Roster has ${DB.students.length} students`)}${ok(dup===0?'Pass':'Fail',dup===0,'Roll numbers are unique')}${ok(orphan===0?'Pass':'Fail',orphan===0,'Every attendance record maps to a roster student')}
+ ${ok('Pass',toSec(s.closingTime)>toSec(s.openingTime),'Window opens before it closes')}${ok(storageOk?'Pass':'Warning',storageOk,storageOk?'Browser storage is saving demo data':'Browser storage unavailable: data resets on refresh')}</ul></section>
+ <section class="card"><div class="card-h"><h2>Hardware diagnostics</h2>${badge('muted','Need integration')}</div><ul class="diag">${na('Scanner heartbeat')}${na('Barcode decode rate')}${na('UART framing errors')}${na('FPGA configuration done')}${na('Register readback match')}</ul></section></div>
+ <details class="card" style="margin-top:16px"><summary>Planned Verilog modules</summary><pre>uart_rx        -- 8N1 receiver, 115200 baud
+id_parser      -- assembles "25EVnnn" and converts nnn to an index 1..63
+roster_check   -- accepts only indices 1..63
+window_cmp     -- open <= time <= close, in seconds
+attendance_fsm -- IDLE, RX_ID, VALIDATE_ID, CHECK_WINDOW, CHECK_BIT, SET_BIT
+reg_file_63    -- 63 x 1-bit flip-flops, cleared at the start of each day</pre></details>${demoNote()}`;
+}
+
+/* ---------- SETTINGS ---------- */
+function pageSettings(){
+ const s=DB.settings,f=(id,l,v,extra='')=>`<div class="field"><label for="${id}">${l}</label><input id="${id}" name="${id}" class="input" value="${esc(v)}" ${extra}></div>`;
+ const tz=['Asia/Kolkata','Asia/Dubai','Asia/Singapore','Europe/London','America/New_York','UTC'];if(!tz.includes(s.timezone))tz.push(s.timezone);
+ const tag=(t,c)=>`<span class="badge ${c}">${t}</span>`;
+ return `<div class="notice info" style="margin-bottom:16px">${ic('info',18)}<div>Settings in the first group change this prototype immediately. Hardware settings further down are read-only until firmware and the FPGA design exist.</div></div>
+ <form data-form="settings" novalidate class="stack"><section class="card"><div class="card-h"><h2>Class details</h2>${tag('Affects prototype','info')}</div><div class="formgrid">
+ ${f('department','Department',s.department,'required maxlength="60"')}${f('classSection','Class / section',s.classSection,'required maxlength="30"')}
+ <div class="field"><label for="semester">Semester</label><select id="semester" name="semester" class="select">${[1,2,3,4,5,6,7,8].map(n=>`<option ${s.semester===String(n)?'selected':''}>${n}</option>`).join('')}</select></div>
+ ${f('academicYear','Academic year (YYYY-YY)',s.academicYear,'required maxlength="7" placeholder="2026-27"')}${f('semesterStart','Semester start',s.semesterStart,'type="date" required')}${f('semesterEnd','Semester end',s.semesterEnd,'type="date" required')}</div></section>
+ <section class="card"><div class="card-h"><h2>Attendance window and calendar</h2>${tag('Affects prototype','info')}</div><div class="formgrid">
+ ${f('openingTime','Attendance opens',s.openingTime,'type="time" required')}${f('closingTime','Attendance closes (inclusive)',s.closingTime,'type="time" required')}
+ ${f('threshold','Attendance target (%)',s.threshold,'type="number" min="1" max="100" required')}
+ <div class="field"><label for="retentionYears">Record retention</label><select id="retentionYears" name="retentionYears" class="select"><option value="1" ${s.retentionYears===1?'selected':''}>1 year</option><option value="2" ${s.retentionYears===2?'selected':''}>2 years</option></select></div>
+ <div class="field"><label for="timezone">College timezone</label><select id="timezone" name="timezone" class="select">${tz.map(z=>`<option ${s.timezone===z?'selected':''}>${esc(z)}</option>`).join('')}</select></div></div>
+ <div class="field" style="margin-top:14px"><span class="label">Official working days</span><div class="checks">${[1,2,3,4,5,6,0].map(n=>`<label><input type="checkbox" name="wd" value="${n}" ${s.workingWeekdays.includes(n)?'checked':''}> ${WD[n]}</label>`).join('')}</div></div></section>
+ <div id="setErr" class="err" role="alert"></div><div><button class="btn btn-primary" type="submit">${ic('check',16)} Save settings</button></div></form>
+ <section class="card" style="margin-top:16px"><div class="card-h"><h2>Holidays</h2>${tag('Affects prototype','info')}</div>
+ ${s.holidays.length?`<div class="list">${s.holidays.map(h=>`<div><span><b>${esc(h.label)}</b> <span class="muted small">${esc(D.long(h.date))}</span></span><button class="btn btn-sm btn-danger" data-act="rmHoliday" data-d="${h.date}" aria-label="Remove holiday ${esc(h.label)}">${ic('trash',14)} Remove</button></div>`).join('')}</div>`:empty('No holidays configured','Add dates when no attendance session is held.')}
+ <form data-form="addHoliday" class="toolbar" style="margin:14px 0 0" novalidate><div class="field"><label for="hd">Date</label><input id="hd" name="date" class="input" type="date" required></div><div class="field grow"><label for="hl">Label</label><input id="hl" name="label" class="input" maxlength="40" placeholder="e.g. Founders' day" required></div><button class="btn" type="submit">${ic('plus',16)} Add holiday</button></form><div id="holErr" class="err" role="alert"></div></section>
+ <section class="card" style="margin-top:16px"><div class="card-h"><h2>Hardware settings</h2>${tag('Needs firmware / FPGA','warn')}</div><dl class="kv"><dt>Scanner</dt><dd>ESP32-CAM, not connected</dd><dt>UART</dt><dd>115200 8N1 proposed, not applied to any device</dd><dt>FPGA window comparator</dt><dd>Will read the opening and closing times above once integration exists</dd><dt>Time source</dt><dd>Demo clock only; a real RTC or NTP source is still to be chosen</dd></dl></section>
+ <section class="card" style="margin-top:16px"><div class="card-h"><h2>Demo data</h2></div><p class="muted small" style="margin-bottom:12px">Reset restores the original fictional roster and regenerates seeded history. To clear only one day, use Reset demo day on Daily Attendance.</p><div class="row"><button class="btn btn-danger" data-act="resetAll">${ic('reset',16)} Reset all demo data</button><button class="btn" data-act="purge">${ic('trash',16)} Delete records older than ${s.retentionYears} year${s.retentionYears>1?'s':''}</button></div></section>
+ <section class="card" style="margin-top:16px"><div class="card-h"><h2>Faculty authentication</h2>${badge('warn','Demo login only')}</div><p class="muted small">The sign-in screen in this prototype is a demo and gives no real protection. Production needs server-side authentication, hashed passwords (Argon2 or bcrypt, never plain text), protected API routes and managed sessions with expiry. Students never get accounts.</p></section>
+ <details class="card" style="margin-top:16px"><summary>Data model</summary><pre>Students            id, rollNumber (25EV001..25EV063), name, email, department, classSection, semester,
+                    residence (Hosteller | Day Scholar)
+AttendanceSessions  id, date, openingTime, closingTime, sessionStatus
+AttendanceRecords   id, rollNumber, date, firstScanTime, status, source, event metadata
+                    one record per student per working day; Absent = bit 0 (no record)
+WorkingDays         date, isWorkingDay, label (derived from weekdays + holidays)
+FacultyUsers        production only: username, password hash, role. Never plain text.
+Retention           1 to 2 years; all dates in the configured college timezone</pre></details>${demoNote()}`;
+}
+
+/* ---------- LOGIN ---------- */
+function loginView(){
+ return `<div class="login-wrap"><div class="login"><div class="row" style="justify-content:center;margin-bottom:18px;flex-wrap:nowrap">${LOGO}<div><b style="font-size:24px;letter-spacing:-.02em">AttendEdge</b><div class="muted small">Smart Attendance Management</div></div></div>
+ <section class="card"><h1 style="font-size:22px;margin-bottom:4px">Faculty sign in</h1><p class="muted small" style="margin-bottom:14px">Faculty access only. Students have no accounts; they present their ID card to the scanner.</p>
+ <div class="notice" style="margin-bottom:16px">${ic('alert',18)}<div><b>Demo login, prototype only.</b> Username <span class="rollc">faculty</span>, password <span class="rollc">demo123</span>. This is not production security.</div></div>
+ <form data-form="login" novalidate class="stack"><div class="field"><label for="lu">Username</label><input id="lu" name="user" class="input" autocomplete="username" autocapitalize="off" spellcheck="false"><div id="luErr" class="err"></div></div>
+ <div class="field"><label for="lp">Password</label><div class="pw"><input id="lp" name="pass" class="input" type="password" autocomplete="current-password"><button type="button" data-act="togglePw" aria-label="Show password" aria-pressed="false">${ic('eye',18)}</button></div><div id="lpErr" class="err"></div></div>
+ <div id="lgErr" class="err" role="alert"></div><button class="btn btn-primary" type="submit" style="width:100%">Sign in</button><button class="btn" type="button" data-act="fillDemo" style="width:100%">Fill demo credentials</button></form></section>
+ <details class="card flat" style="margin-top:14px"><summary style="cursor:pointer;font-weight:650">What production needs</summary><ul class="muted small" style="margin:10px 0 0;padding-left:18px"><li>Server-side authentication, not a check in the browser</li><li>Password hashing with Argon2 or bcrypt</li><li>Protected API routes for every attendance and report request</li><li>Session management with expiry, secure cookies and logout</li></ul></details></div></div>`;
+}
+
+/* ---------- render ---------- */
+let lastKey='';
+const statusKey=()=>sessionInfo(DB.ui.selDate).key+clockNow().date+DB.ui.clock.mode;
+function render(){
+ const root=$('#root');
+ if(!isAuthed()){root.innerHTML=loginView();return;}
+ const ae=document.activeElement;let key=null,s0=null,s1=null;
+ if(ae&&ae!==document.body&&root.contains(ae)){key=ae.id?`[id="${ae.id}"]`:(ae.dataset&&ae.dataset.bind?`[data-bind="${ae.dataset.bind}"]`:null);try{s0=ae.selectionStart;s1=ae.selectionEnd;}catch(e){}}
+ const y=window.scrollY,view={overview:pageOverview,daily:pageDaily,students:pageStudents,weekly:pageWeekly,monthly:pageMonthly,semester:pageSemester,pdf:pagePdf,device:pageDevice,settings:pageSettings}[UI.page];
+ root.innerHTML=`<a class="skip" href="#main">Skip to content</a>${sidebar()}<div class="shell"><div class="topbar-m"><button class="icon-btn" data-act="openNav" aria-label="Open navigation">${ic('menu',18)}</button><b>AttendEdge</b></div><main id="main" tabindex="-1">${header()}${view()}</main></div>`;
+ UI.scan.flash=null;lastKey=statusKey();
+ if(key){const el=$(key,root);if(el){el.focus({preventScroll:true});if(s0!=null)try{el.setSelectionRange(s0,s1);}catch(e){}}}
+ window.scrollTo(0,y);
+}
+function route(){
+ let h=location.hash.replace(/^#\/?/,'');
+ if(!PAGES.some(p=>p[0]===h)){h='overview';history.replaceState(null,'','#/overview');}
+ UI.page=h;document.body.classList.remove('nav-open');
+ document.title='AttendEdge · '+PAGES.find(p=>p[0]===h)[1];
+ render();window.scrollTo(0,0);
+}
+function setSel(v){if(!D.valid(v))return;DB.ui.selDate=v;save();render();}
+function afterClock(){if(!UI.scan.busy){UI.scan.state='ready';UI.scan.message='Clock updated. Scanner ready.';}render();}
+
+/* ---------- roster CSV ---------- */
+function parseCSV(t){const rows=[];let r=[],c='',q=false;t=t.replace(/^\ufeff/,'');
+ for(let i=0;i<t.length;i++){const ch=t[i];
+  if(q){if(ch==='"'){if(t[i+1]==='"'){c+='"';i++;}else q=false;}else c+=ch;}
+  else if(ch==='"')q=true;else if(ch===','){r.push(c);c='';}
+  else if(ch==='\n'||ch==='\r'){if(ch==='\r'&&t[i+1]==='\n')i++;r.push(c);c='';rows.push(r);r=[];}else c+=ch;}
+ if(c!==''||r.length){r.push(c);rows.push(r);}return rows.filter(x=>x.some(v=>v.trim()!==''));}
+function importRoster(text){
+ const rows=parseCSV(text);if(rows.length<2){toast('The file has no data rows.','bad');return;}
+ const head=rows[0].map(h=>h.trim().toLowerCase()),ix=k=>head.indexOf(k.toLowerCase());
+ if(ix('rollNumber')<0){toast('Missing "rollNumber" column. Export the roster CSV to see the expected format.','bad');return;}
+ let up=0,unk=0,bad=0;
+ rows.slice(1).forEach(r=>{
+  const roll=(r[ix('rollNumber')]||'').trim().toUpperCase(),s=Service.getStudent(roll);
+  if(!s){unk++;return;}
+  const get=k=>ix(k)>=0?(r[ix(k)]||'').trim():null,p={},name=get('name'),email=get('email'),dep=get('department'),cls=get('classSection'),sem=get('semester'),res=get('residence');
+  if(name)p.name=name;if(dep)p.department=dep;if(cls)p.classSection=cls;
+  if(email){if(/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))p.email=email;else{bad++;return;}}
+  if(sem){if(/^[1-8]$/.test(sem))p.semester=sem;else{bad++;return;}}
+  if(res){const k=res.toLowerCase().replace(/[\s_-]/g,'');if(k==='hosteller'||k==='hostel')p.residence='Hosteller';else if(k==='dayscholar'||k==='day')p.residence='Day Scholar';else{bad++;return;}}
+  if(Object.keys(p).length){Service.updateStudent(roll,p);up++;}
+ });
+ render();toast(`Roster import finished: ${up} updated, ${unk} unknown roll number(s) skipped, ${bad} invalid row(s) skipped.`,up?'ok':'warn');
+}
+function exportRoster(){
+ const rows=[['rollNumber','name','email','department','classSection','semester','residence'],...DB.students.map(s=>[s.rollNumber,s.name,s.email,s.department,s.classSection,s.semester,s.residence])];
+ download(new Blob(['\ufeff'+toCSV(rows)],{type:'text/csv;charset=utf-8'}),'AttendEdge_roster.csv');toast('Roster CSV downloaded.','ok');
+}
+
+/* ---------- actions ---------- */
+const ACT={
+ openNav(){document.body.classList.add('nav-open');}, closeNav(){document.body.classList.remove('nav-open');},
+ logout(){try{localStorage.removeItem(AUTH_KEY);}catch(e){window.__authMem=false;}closeModal();render();history.replaceState(null,'','#/overview');toast('You have been logged out.','info');},
+ sort(el){const st=T(el.dataset.t),k=el.dataset.k;if(st.sort===k)st.dir=st.dir==='asc'?'desc':'asc';else{st.sort=k;st.dir='asc';}render();},
+ page(el){T(el.dataset.t).page+=+el.dataset.d;render();},
+ setFilter(el){UI.daily.filter=el.dataset.f;T('daily').page=1;render();},
+ goDaily(el){UI.daily.filter=el.dataset.f;UI.daily.q='';T('daily').page=1;if(location.hash==='#/daily')render();else location.hash='#/daily';},
+ shiftDate(el){setSel(D.add(DB.ui.selDate,+el.dataset.d));},
+ shiftWeek(el){UI.weekly.date=D.add(UI.weekly.date,+el.dataset.d);render();},
+ scanPrefill(el){UI.scan.roll=el.dataset.roll;UI.scan.err='';UI.scan.state='ready';UI.scan.message=`${el.dataset.roll} loaded. Press Scan.`;render();const i=$('#scanRoll');if(i){i.scrollIntoView({block:'center',behavior:'smooth'});i.focus({preventScroll:true});}},
+ pickRoll(el){ACT.scanPrefill(el);},
+ preset(el){DB.ui.clock.time=el.dataset.t;save();toast(`Simulated clock set to ${el.dataset.t}.`,'info');afterClock();},
+ clockMode(el){DB.ui.clock.mode=el.dataset.m;save();toast(el.dataset.m==='real'?'Using the system clock.':'Using the simulated clock.','info');afterClock();},
+ openStudent(el){openModal(studentModal(el.dataset.roll),true);},
+ report(el){const a=el.dataset.args;runReport(el.dataset.r,a==='pdf'?'pdf':(a?JSON.parse(a):null),el.dataset.mode||'pdf');},
+ async resetDay(){const d=DB.ui.selDate;
+  if(d<today()){toast('Historical records are protected and cannot be reset.','bad');return;}
+  const ok=await confirmDialog({title:'Reset this demo day?',body:`This clears all ${presentCount(d)} attendance record(s) for <b>${esc(D.long(d))}</b> and sets every bit back to 0. Records for every other date are not touched.`,ok:'Reset demo day',danger:true});
+  if(ok){const r=Service.resetDay(d);UI.scan.state='ready';UI.scan.message='Day reset. Scanner ready.';render();toast(`Demo day reset: ${r.removed} record(s) cleared.`,'ok');}},
+ async resetAll(){const ok=await confirmDialog({title:'Reset all demo data?',body:'This deletes every demo attendance record, including seeded history and any roster edits, then recreates the original fictional data. It cannot be undone.',ok:'Reset all demo data',danger:true});
+  if(ok){Service.resetAll();initUI();UI.tables={};render();toast('All demo data was reset.','ok');}},
+ async purge(){const y=DB.settings.retentionYears,ok=await confirmDialog({title:'Delete expired records?',body:`This permanently deletes attendance records older than ${y} year${y>1?'s':''}. Newer records are kept.`,ok:'Delete expired records',danger:true});
+  if(ok){const n=Service.purgeOld();render();toast(n?`${n} expired record(s) deleted.`:'No records are older than the retention period.',n?'ok':'info');}},
+ rmHoliday(el){DB.settings.holidays=DB.settings.holidays.filter(h=>h.date!==el.dataset.d);Service.saveSettings({});render();toast('Holiday removed.','ok');},
+ importRoster(){$('#rosterFile').click();}, exportRoster,
+ dlgOk(){if(pendingConfirm){const r=pendingConfirm;pendingConfirm=null;r(true);}closeModal();},
+ dlgCancel(){closeModal();},
+ fillDemo(){$('#lu').value=DEMO_LOGIN.user;$('#lp').value=DEMO_LOGIN.pass;['luErr','lpErr','lgErr'].forEach(i=>$('#'+i).textContent='');$('#lp').focus();},
+ togglePw(el){const i=$('#lp'),show=i.type==='password';i.type=show?'text':'password';el.setAttribute('aria-label',show?'Hide password':'Show password');el.setAttribute('aria-pressed',String(show));el.innerHTML=ic(show?'eyeoff':'eye',18);}
+};
+const FORMS={
+ login(f){
+  const u=f.elements.user.value.trim(),p=f.elements.pass.value,eu=$('#luErr'),ep=$('#lpErr'),eg=$('#lgErr');eu.textContent=ep.textContent=eg.textContent='';
+  let bad=false;if(!u){eu.textContent='Enter your username.';bad=true;}if(!p){ep.textContent='Enter your password.';bad=true;}if(bad)return;
+  if(u===DEMO_LOGIN.user&&p===DEMO_LOGIN.pass){try{localStorage.setItem(AUTH_KEY,JSON.stringify({user:u,demo:true,at:Date.now()}));}catch(e){window.__authMem=true;}route();toast('Signed in to the demo session.','ok');}
+  else eg.textContent='Username or password not recognised. This prototype only accepts the labelled demo login.';
+ },
+ scan(){
+  const sc=UI.scan;if(sc.busy)return;const roll=sc.roll.trim().toUpperCase();
+  if(!roll){sc.err='Enter a roll number to scan.';render();return;}
+  if(!/^[A-Z0-9]{3,12}$/.test(roll)){sc.err='Use 3 to 12 letters or digits only, for example 25EV001.';render();return;}
+  sc.err='';sc.busy=true;sc.state='scanning';sc.message=`Reading barcode ${roll}…`;render();
+  setTimeout(()=>{
+   const r=Service.scan(roll);sc.busy=false;sc.state=r.state;sc.message=r.message;sc.lastRoll=roll;sc.roll=roll;if(r.state==='present')sc.flash=roll;
+   let msg=r.message;if(r.state==='present'&&DB.ui.selDate!==r.date)msg+=` Recorded for today (${r.date}); you are viewing ${DB.ui.selDate}.`;
+   toast(msg,({present:'ok',duplicate:'warn',invalid:'bad',closed:'bad',notstarted:'warn'})[r.state]);render();
+  },450);
+ },
+ setTime(f){
+  const v=f.elements.clk?f.elements.clk.value:$('#clk').value;
+  if(!/^\d{2}:\d{2}(:\d{2})?$/.test(v)){toast('Enter a valid time.','bad');return;}
+  DB.ui.clock.time=v.length===5?v+':00':v;save();toast(`Simulated clock set to ${DB.ui.clock.time}.`,'info');afterClock();
+ },
+ student(f){
+  const g=id=>f.elements[id].value.trim(),err=$('#stuErr'),roll=f.dataset.roll;
+  if(!g('name'))return void(err.textContent='Enter the student name.');
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(g('email')))return void(err.textContent='Enter a valid email address.');
+  if(!g('department')||!g('classSection'))return void(err.textContent='Department and class / section are required.');
+  if(!/^[1-8]$/.test(g('semester')))return void(err.textContent='Semester must be a number from 1 to 8.');
+  if(!RES.includes(g('residence')))return void(err.textContent='Choose Hosteller or Day Scholar.');
+  Service.updateStudent(roll,{name:g('name'),email:g('email'),department:g('department'),classSection:g('classSection'),semester:g('semester'),residence:g('residence')});
+  closeModal();render();toast(`Saved changes for ${roll}.`,'ok');
+ },
+ settings(f){
+  const fd=new FormData(f),g=k=>String(fd.get(k)||'').trim(),err=m=>{$('#setErr').textContent=m;toast(m,'bad');};
+  $('#setErr').textContent='';
+  const open=g('openingTime'),close=g('closingTime'),wd=fd.getAll('wd').map(Number),thr=+g('threshold');
+  if(!g('department')||!g('classSection'))return err('Department and class / section are required.');
+  if(!/^\d{4}-\d{2}$/.test(g('academicYear')))return err('Academic year must look like 2026-27.');
+  if(!D.valid(g('semesterStart'))||!D.valid(g('semesterEnd')))return err('Enter both semester dates.');
+  if(g('semesterEnd')<=g('semesterStart'))return err('Semester end must be after semester start.');
+  if(!/^\d{2}:\d{2}$/.test(open)||!/^\d{2}:\d{2}$/.test(close))return err('Enter both the opening and closing times.');
+  if(toSec(close)<=toSec(open))return err('Closing time must be later than opening time.');
+  if(!(thr>=1&&thr<=100))return err('The attendance target must be between 1 and 100.');
+  if(!wd.length)return err('Select at least one working day.');
+  const old=Object.assign({},DB.settings);
+  DB.students.forEach(s=>{if(s.department===old.department)s.department=g('department');if(s.classSection===old.classSection)s.classSection=g('classSection');if(s.semester===old.semester)s.semester=g('semester');});
+  Service.saveSettings({department:g('department'),classSection:g('classSection'),semester:g('semester'),academicYear:g('academicYear'),semesterStart:g('semesterStart'),semesterEnd:g('semesterEnd'),openingTime:open,closingTime:close,threshold:thr,retentionYears:+g('retentionYears'),timezone:g('timezone'),workingWeekdays:wd});
+  UI.sem.sem=g('semester');UI.sem.ay=g('academicYear');render();toast('Settings saved. Reports now use the new calendar and window.','ok');
+ },
+ addHoliday(f){
+  const d=f.elements.date.value,l=f.elements.label.value.trim(),e=$('#holErr');
+  if(!D.valid(d))return void(e.textContent='Choose a date.');if(!l)return void(e.textContent='Enter a label.');
+  if(DB.settings.holidays.some(h=>h.date===d))return void(e.textContent='That date is already a holiday.');
+  DB.settings.holidays.push({date:d,label:l});DB.settings.holidays.sort((a,b)=>a.date.localeCompare(b.date));Service.saveSettings({});render();toast('Holiday added.','ok');
+ }
+};
+
+/* ---------- wiring ---------- */
+function tick(){
+ if(!isAuthed()||DB.ui.clock.mode!=='real')return;
+ const n=clockNow();$$('[data-clock]').forEach(e=>e.textContent=t12(n.time));
+ const c=$('#clk');if(c&&document.activeElement!==c)c.value=n.time;
+ if(statusKey()!==lastKey&&!$('#dlg').open)render();
+}
+function boot(){
+ loadDB();initUI();
+ document.addEventListener('click',e=>{const el=e.target.closest('[data-act]');if(!el||el.disabled)return;const h=ACT[el.dataset.act];if(h){if(el.tagName==='A')e.preventDefault();h(el,e);}});
+ document.addEventListener('submit',e=>{const f=e.target.closest('form[data-form]');if(!f)return;e.preventDefault();FORMS[f.dataset.form](f,e);});
+ const DATEKEYS=['weekly.date','pdf.day','pdf.week','pdf.pDate','pdf.aDate'],NUM=['y','m','cy','cm','size'];
+ document.addEventListener('input',e=>{
+  const el=e.target,b=el.dataset&&el.dataset.bind;if(!b)return;let v=el.value;
+  if(b==='sel'){if(D.valid(v))setSel(v);return;}
+  const [g,k]=b.split('.');if(!UI[g])return;
+  if(DATEKEYS.includes(b)&&!D.valid(v))return;
+  if(NUM.includes(k))v=+v;
+  UI[g][k]=v;
+  if(b==='scan.roll'){UI.scan.err='';if(!UI.scan.busy){UI.scan.state='ready';UI.scan.message='Scanner idle. Press Scan to read this roll number.';}}
+  else if(g!=='pdf')Object.values(UI.tables).forEach(t=>t.page=1);
+  render();
+ });
+ document.addEventListener('change',e=>{const el=e.target;if(el.dataset&&el.dataset.file==='roster'){const f=el.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>importRoster(String(rd.result));rd.readAsText(f);el.value='';}});
+ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.body.classList.remove('nav-open');});
+ const dlg=$('#dlg');
+ dlg.addEventListener('click',e=>{if(e.target===dlg)closeModal();});
+ dlg.addEventListener('close',()=>{if(pendingConfirm){const r=pendingConfirm;pendingConfirm=null;r(false);}});
+ window.addEventListener('hashchange',route);
+ route();setInterval(tick,1000);
+}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
+})();
+</script>
+</body>
+</html>

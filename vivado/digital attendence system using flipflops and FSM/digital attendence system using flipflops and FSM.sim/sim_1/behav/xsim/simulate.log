@@ -1,0 +1,7 @@
+Time resolution is 1 ps
+t=110000 id=10 8:30 -> status=4 bits=0000000000000400
+t=220000 id=10 8:31 -> status=1 bits=0000000000000400
+t=310000 id=62 9:14 -> status=3 bits=0000000000000400
+t=410000 id=63 8:10 -> status=2 bits=0000000000000400
+t=520000 id=5 8:5 -> status=4 bits=0000000000000420
+$finish called at time : 550 ns : File "C:/Users/atlas/digital attendence system using flipflops and FSM/digital attendence system using flipflops and FSM.srcs/sim_1/new/tb_attendance_controller.v" Line 30

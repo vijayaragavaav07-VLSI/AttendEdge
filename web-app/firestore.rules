@@ -1,0 +1,91 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Core Authentication & Role Checks
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Strict Faculty Authorization:
+    // Requires a verified Firebase custom claim (role == 'faculty' or faculty == true)
+    // OR an authorized record in the /faculty/{uid} collection.
+    // Unverified/generic authenticated users are NOT granted faculty access.
+    function isFaculty() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'faculty' ||
+        request.auth.token.faculty == true ||
+        exists(/databases/$(database)/documents/faculty/$(request.auth.uid))
+      );
+    }
+    
+    // Faculty Registry: Stores authorized faculty user profiles
+    // Read: Authenticated user can read their own profile; faculty can read all faculty profiles.
+    // Write: CLIENT WRITES DENIED.
+    // Only the trusted administrator using Firebase Admin SDK can create or modify faculty records.
+    match /faculty/{facultyId} {
+      allow read: if isAuthenticated() && (request.auth.uid == facultyId || isFaculty());
+      allow write: if false;
+    }
+    
+    // Students Collection: Private student roster (Roll numbers, names, departments)
+    // Only verified faculty can read or mutate student profiles.
+    // Unauthenticated access or generic student access is strictly rejected.
+    match /students/{studentId} {
+      allow read: if isFaculty();
+      allow create, update, delete: if isFaculty();
+    }
+    
+    // Attendance Sessions: Daily attendance sessions metadata
+    // Only verified faculty can view, open, or close sessions.
+    match /sessions/{sessionId} {
+      allow read: if isFaculty();
+      allow write: if isFaculty();
+    }
+    
+    // Attendance Records: Highly sensitive student attendance logs
+    // Faculty may read records for attendance dashboards and reports.
+    // DIRECT CLIENT WRITES ARE FORBIDDEN:
+    // All attendance recording must be performed through the trusted
+    // recordAttendance Cloud Function to enforce server-side time-window (08:00–08:35),
+    // session status (must not be Closed), student roster validation, and atomic duplicate checks.
+    // Deletions and client updates are strictly prohibited to maintain permanent audit integrity.
+    match /records/{recordId} {
+      allow read: if isFaculty();
+      allow write: if false;
+
+      // Individual student attendance entries:
+      // Direct client writes are forbidden; written only via Cloud Function Admin SDK
+      match /entries/{rollNumber} {
+        allow read: if isFaculty();
+        allow write: if false;
+      }
+    }
+    
+    // System Settings (Attendance window, working weekdays, holidays)
+    // Authenticated faculty can read and write settings.
+    match /settings/{docId} {
+      allow read: if isFaculty();
+      allow write: if isFaculty();
+    }
+
+    // Hardware & Device Status (FPGA UART status, ESP32-CAM heartbeat, clock sync)
+    match /device_status/{statusId} {
+      allow read: if isFaculty();
+      allow write: if isFaculty();
+    }
+    
+    // Hardware and Audit Events: Real-time scan log & hardware diagnostics
+    // Append-only for authenticated faculty; cannot be modified or deleted once logged.
+    match /events/{eventId} {
+      allow read: if isFaculty();
+      allow create: if isFaculty();
+      allow update, delete: if false; // Append-only audit integrity
+    }
+    
+    // Default fallback: deny all other unmatched collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

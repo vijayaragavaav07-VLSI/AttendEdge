@@ -1,0 +1,24 @@
+#-----------------------------------------------------------
+# Vivado v2025.2 (64-bit)
+# SW Build 6299465 on Fri Nov 14 19:35:11 GMT 2025
+# IP Build 6300035 on Fri Nov 14 10:48:45 MST 2025
+# SharedData Build 6298862 on Thu Nov 13 04:50:51 MST 2025
+# Start of session at: Fri Oct 16 20:47:06 2026
+# Process ID         : 25472
+# Current directory  : C:/Users/atlas/digital attendence system using flipflops and FSM/digital attendence system using flipflops and FSM.runs/impl_1
+# Command line       : vivado.exe -log attendedge_top.vdi -applog -product Vivado -messageDb vivado.pb -mode batch -source attendedge_top.tcl -notrace
+# Log file           : C:/Users/atlas/digital attendence system using flipflops and FSM/digital attendence system using flipflops and FSM.runs/impl_1/attendedge_top.vdi
+# Journal file       : C:/Users/atlas/digital attendence system using flipflops and FSM/digital attendence system using flipflops and FSM.runs/impl_1\vivado.jou
+# Running On         : karthikreddy
+# Platform           : Windows Server 2016 or Windows 10
+# Operating System   : 26300
+# Processor Detail   : 13th Gen Intel(R) Core(TM) i5-1334U
+# CPU Frequency      : 2496 MHz
+# CPU Physical cores : 10
+# CPU Logical cores  : 12
+# Host memory        : 16786 MB
+# Swap memory        : 1879 MB
+# Total Virtual      : 18665 MB
+# Available Virtual  : 3880 MB
+#-----------------------------------------------------------
+source attendedge_top.tcl -notrace
