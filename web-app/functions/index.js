@@ -96,8 +96,8 @@ export async function verifyAndRecordAttendance(firestoreDb, {
   }).formatToParts(now);
 
   const g = (t) => nowParts.find(p => p.type === t).value;
-  const todayDate = data.date || `${g('year')}-${g('month')}-${g('day')}`;
-  const currentTime = data.time || `${g('hour')}:${g('minute')}:${g('second')}`;
+  const todayDate = `${g('year')}-${g('month')}-${g('day')}`;
+  const currentTime = `${g('hour')}:${g('minute')}:${g('second')}`;
 
   // 4. Server-Side Attendance Time Window Check (08:00 - 08:35)
   const toSec = (timeStr) => {
