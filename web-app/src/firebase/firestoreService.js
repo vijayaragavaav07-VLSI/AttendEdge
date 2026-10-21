@@ -529,22 +529,38 @@ export const FirestoreService = {
       throw err;
     }
 
-    if (!functions) {
-      const err = new Error('Cloud Functions instance is not initialized.');
-      err.code = 'functions/not-initialized';
-      throw err;
-    }
-
     try {
-      const recordAttendanceFn = httpsCallable(functions, 'recordAttendance');
-      const response = await recordAttendanceFn(payload);
-      const data = response.data;
+      const currentUser = auth?.currentUser;
+      if (!currentUser) {
+        const err = new Error('Cannot save attendance record: User session expired or not authenticated.');
+        err.code = 'unauthenticated';
+        throw err;
+      }
 
-      if (!data || data.success !== true) {
-        const errorMsg = (data && data.message) || 'Attendance rejected by Cloud Function validation.';
+      const idToken = await currentUser.getIdToken();
+      const endpoint = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_ATTENDANCE_API_URL) || '/api/recordAttendance';
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      let data = null;
+      try {
+        data = await response.json();
+      } catch (jsonErr) {
+        // Non-JSON response
+      }
+
+      if (!response.ok || !data || data.success !== true) {
+        const errorMsg = (data && data.message) || `Attendance rejected by server (${response.status}: ${response.statusText}).`;
         const err = new Error(errorMsg);
         err.statusCode = data ? data.statusCode : 0;
-        err.code = 'cloud-function-rejection';
+        err.code = (data && data.code) || (response.status === 401 ? 'functions/unauthenticated' : response.status === 403 ? 'functions/permission-denied' : response.status === 404 ? 'functions/not-found' : 'functions/internal');
         throw err;
       }
 

@@ -3,6 +3,9 @@ import {
   verifyAndRecordAttendance,
   STATUS_CODES
 } from '../functions/index.js';
+import {
+  handler as netlifyRecordAttendance
+} from '../netlify/functions/recordAttendance.js';
 import { FirestoreService, isCloudSyncReady } from '../src/firebase/firestoreService.js';
 import * as firestoreModule from '../src/firebase/firestoreService.js';
 import { attendanceService } from '../src/services/attendanceService.js';
@@ -485,6 +488,222 @@ describe('Stage 4: Cloud Functions Attendance Security & Verification Tests', ()
 
       spy.mockRestore();
       cloudSyncSpy.mockRestore();
+    });
+  });
+
+  describe('8. Netlify Serverless Function Handler HTTP Security Tests', () => {
+    const mockAdminAuth = {
+      verifyIdToken: async (token) => {
+        if (token === 'valid-faculty-token') {
+          return { uid: 'fac-001', role: 'faculty', faculty: true };
+        }
+        if (token === 'valid-student-token') {
+          return { uid: 'student-999', role: 'student' };
+        }
+        if (token === 'disabled-faculty-token') {
+          return { uid: 'fac-disabled' };
+        }
+        throw new Error('Firebase ID token has expired or is invalid.');
+      }
+    };
+
+    it('rejects non-POST HTTP methods with 405 Method Not Allowed', async () => {
+      const res = await netlifyRecordAttendance({
+        httpMethod: 'GET',
+        headers: {}
+      }, {}, { services: { db: mockDb, auth: mockAdminAuth } });
+
+      expect(res.statusCode).toBe(405);
+      const body = JSON.parse(res.body);
+      expect(body.success).toBe(false);
+      expect(body.code).toBe('method-not-allowed');
+    });
+
+    it('handles CORS preflight OPTIONS request with 204', async () => {
+      const res = await netlifyRecordAttendance({
+        httpMethod: 'OPTIONS',
+        headers: {}
+      });
+
+      expect(res.statusCode).toBe(204);
+      expect(res.headers['Access-Control-Allow-Methods']).toContain('POST');
+    });
+
+    it('rejects requests without Authorization header with 401 unauthenticated', async () => {
+      const res = await netlifyRecordAttendance({
+        httpMethod: 'POST',
+        headers: {},
+        body: JSON.stringify({ rollNumber: '25EV001' })
+      }, {}, { services: { db: mockDb, auth: mockAdminAuth } });
+
+      expect(res.statusCode).toBe(401);
+      const body = JSON.parse(res.body);
+      expect(body.success).toBe(false);
+      expect(body.code).toBe('functions/unauthenticated');
+      expect(body.message).toContain('Missing or invalid Authorization Bearer');
+    });
+
+    it('rejects requests with malformed Authorization header with 401 unauthenticated', async () => {
+      const res = await netlifyRecordAttendance({
+        httpMethod: 'POST',
+        headers: { authorization: 'Basic dXNlcjpwYXNz' },
+        body: JSON.stringify({ rollNumber: '25EV001' })
+      }, {}, { services: { db: mockDb, auth: mockAdminAuth } });
+
+      expect(res.statusCode).toBe(401);
+      const body = JSON.parse(res.body);
+      expect(body.success).toBe(false);
+      expect(body.code).toBe('functions/unauthenticated');
+    });
+
+    it('rejects invalid or expired Firebase ID token with 401 unauthenticated', async () => {
+      const res = await netlifyRecordAttendance({
+        httpMethod: 'POST',
+        headers: { authorization: 'Bearer expired-or-invalid-token' },
+        body: JSON.stringify({ rollNumber: '25EV001' })
+      }, {}, { services: { db: mockDb, auth: mockAdminAuth } });
+
+      expect(res.statusCode).toBe(401);
+      const body = JSON.parse(res.body);
+      expect(body.success).toBe(false);
+      expect(body.message).toContain('Authentication failed');
+    });
+
+    it('rejects non-faculty authenticated user with 403 permission-denied', async () => {
+      const res = await netlifyRecordAttendance({
+        httpMethod: 'POST',
+        headers: { authorization: 'Bearer valid-student-token' },
+        body: JSON.stringify({ rollNumber: '25EV001' })
+      }, {}, { services: { db: mockDb, auth: mockAdminAuth }, now: validServerNow, overrideSettings: defaultSettings });
+
+      expect(res.statusCode).toBe(403);
+      const body = JSON.parse(res.body);
+      expect(body.success).toBe(false);
+      expect(body.code).toBe('functions/permission-denied');
+      expect(body.message).toContain('Unauthorized');
+    });
+
+    it('prevents client-supplied dates and times from overriding server attendance window', async () => {
+      const earlyNow = new Date('2026-10-20T07:55:00+05:30');
+      const res = await netlifyRecordAttendance({
+        httpMethod: 'POST',
+        headers: { authorization: 'Bearer valid-faculty-token' },
+        body: JSON.stringify({
+          rollNumber: '25EV001',
+          time: '08:15:00', // Browser attempts to supply forged time
+          date: '2026-10-20',
+          captureId: 0
+        })
+      }, {}, { services: { db: mockDb, auth: mockAdminAuth }, now: earlyNow, overrideSettings: defaultSettings });
+
+      expect(res.statusCode).toBe(403);
+      const body = JSON.parse(res.body);
+      expect(body.success).toBe(false);
+      expect(body.statusCode).toBe(STATUS_CODES.S_OUT_WINDOW);
+      expect(body.message).toContain('07:55:00');
+      expect(body.message).not.toContain('08:15:00');
+    });
+
+    it('rejects invalid student roll number with 400 invalid-argument', async () => {
+      const res = await netlifyRecordAttendance({
+        httpMethod: 'POST',
+        headers: { authorization: 'Bearer valid-faculty-token' },
+        body: JSON.stringify({ rollNumber: '   ' })
+      }, {}, { services: { db: mockDb, auth: mockAdminAuth }, now: validServerNow, overrideSettings: defaultSettings });
+
+      expect(res.statusCode).toBe(400);
+      const body = JSON.parse(res.body);
+      expect(body.success).toBe(false);
+      expect(body.code).toBe('functions/invalid-argument');
+    });
+
+    it('rejects capture ID out of 0..62 range with 400 bad ID', async () => {
+      const res = await netlifyRecordAttendance({
+        httpMethod: 'POST',
+        headers: { authorization: 'Bearer valid-faculty-token' },
+        body: JSON.stringify({ rollNumber: '25EV001', captureId: 63 })
+      }, {}, { services: { db: mockDb, auth: mockAdminAuth }, now: validServerNow, overrideSettings: defaultSettings });
+
+      expect(res.statusCode).toBe(400);
+      const body = JSON.parse(res.body);
+      expect(body.success).toBe(false);
+      expect(body.statusCode).toBe(STATUS_CODES.S_BAD_ID);
+      expect(body.message).toContain('Invalid ID');
+    });
+
+    it('rejects attendance recording when session is closed with 403 out of window', async () => {
+      mockDb.set('sessions', '2026-10-20', {
+        id: 'ses-2026-10-20',
+        date: '2026-10-20',
+        sessionStatus: 'Closed'
+      });
+
+      const res = await netlifyRecordAttendance({
+        httpMethod: 'POST',
+        headers: { authorization: 'Bearer valid-faculty-token' },
+        body: JSON.stringify({ rollNumber: '25EV001', captureId: 0 })
+      }, {}, { services: { db: mockDb, auth: mockAdminAuth }, now: validServerNow, overrideSettings: defaultSettings });
+
+      expect(res.statusCode).toBe(403);
+      const body = JSON.parse(res.body);
+      expect(body.success).toBe(false);
+      expect(body.statusCode).toBe(STATUS_CODES.S_OUT_WINDOW);
+      expect(body.message).toContain('Session Closed');
+    });
+
+    it('rejects duplicate attendance scan with 409 conflict', async () => {
+      const date = '2026-10-20';
+      const roll = '25EV001';
+
+      mockDb.set(`records/${date}/entries`, roll, {
+        rollNumber: roll,
+        date,
+        time: '08:05:00'
+      });
+
+      const res = await netlifyRecordAttendance({
+        httpMethod: 'POST',
+        headers: { authorization: 'Bearer valid-faculty-token' },
+        body: JSON.stringify({ rollNumber: roll, captureId: 0 })
+      }, {}, { services: { db: mockDb, auth: mockAdminAuth }, now: validServerNow, overrideSettings: defaultSettings });
+
+      expect(res.statusCode).toBe(409);
+      const body = JSON.parse(res.body);
+      expect(body.success).toBe(false);
+      expect(body.statusCode).toBe(STATUS_CODES.S_ALREADY);
+      expect(body.message).toContain('Already Recorded');
+    });
+
+    it('successfully records attendance atomically and returns 200 with record payload', async () => {
+      const date = '2026-10-20';
+      const roll = '25EV001';
+
+      const res = await netlifyRecordAttendance({
+        httpMethod: 'POST',
+        headers: { authorization: 'Bearer valid-faculty-token' },
+        body: JSON.stringify({ rollNumber: roll, captureId: 0, source: 'web_fsm' })
+      }, {}, { services: { db: mockDb, auth: mockAdminAuth }, now: validServerNow, overrideSettings: defaultSettings });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.success).toBe(true);
+      expect(body.statusCode).toBe(STATUS_CODES.S_RECORDED);
+      expect(body.message).toContain('Present Recorded');
+      expect(body.record.rollNumber).toBe(roll);
+      expect(body.record.recordedBy).toBe('fac-001');
+      expect(body.record.date).toBe(date);
+      expect(body.record.time).toBe('08:15:00');
+
+      // Verify subcollection entry document was written to Firestore
+      const entry = mockDb.get(`records/${date}/entries`, roll);
+      expect(entry.exists).toBe(true);
+      expect(entry.data().rollNumber).toBe(roll);
+
+      // Verify summary register document was written to Firestore
+      const summary = mockDb.get('records', date);
+      expect(summary.exists).toBe(true);
+      expect(summary.data().totalPresent).toBe(1);
+      expect(summary.data().records[roll]).toBeDefined();
     });
   });
 });
