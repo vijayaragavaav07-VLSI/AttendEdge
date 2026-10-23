@@ -151,6 +151,11 @@ export class AttendanceService {
     }
 
     if (saved && saved.version === 2 && Array.isArray(saved.students) && saved.students.length > 0) {
+      saved.students.forEach(s => {
+        if (!s.gender && !s.updatedAt && !s._cloud && s.placeholder === undefined) {
+          s.placeholder = true;
+        }
+      });
       this.state = saved;
     } else {
       const settings = this.createDefaultSettings();
@@ -564,7 +569,7 @@ export class AttendanceService {
       cloudRes = await FirestoreService.updateStudent(cleanRoll, patch, s);
     }
 
-    Object.assign(s, patch, { placeholder: false });
+    Object.assign(s, patch, { placeholder: false, updatedAt: new Date().toISOString() });
     if (cloudRes) s._cloud = cloudRes;
     this.saveLocal();
     return s;

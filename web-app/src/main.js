@@ -28,12 +28,16 @@ const PAGES = [
 
 const RES = ['Hosteller', 'Day Scholar'];
 
+import { STAT_LABELS, parseStudentGender, parseStudentAccom, getStudentStatistics } from './logic/studentStatistics.js';
+
+export { STAT_LABELS, parseStudentGender, parseStudentAccom, getStudentStatistics };
+
 // UI State
 const UI = {
   page: 'overview',
   currentUser: getCurrentUser(),
   tables: {},
-  daily: { q: '', filter: 'all', size: 25, res: '' },
+  daily: { q: '', filter: 'all', size: 25, res: '', statFilter: 'all' },
   stu: { q: '', dept: '', cls: '', sem: '', res: '' },
   weekly: { date: '', q: '', band: 'all', res: '' },
   monthly: { y: 0, m: 0, q: '', band: 'all', student: '25EV001', res: '' },
@@ -532,7 +536,7 @@ function pageOverview() {
   </div>`;
 }
 
-// PAGE: Daily Attendance & Hardware Ingestion Monitor
+// PAGE: Daily Attendance & Student Statistics Dashboard
 function pageDaily() {
   const q = UI.daily;
   const d = attendanceService.state.ui.selDate;
@@ -542,18 +546,51 @@ function pageDaily() {
   const stu = attendanceService.getStudent(curRoll);
   const curRecord = stu && attendanceService.getRecordsOn(d)[stu.rollNumber];
   const bit = curRecord ? 1 : 0;
+  const statFilter = q.statFilter || 'all';
+
+  const stats = getStudentStatistics(attendanceService.state.students);
 
   const all = attendanceService.state.students.map(s => {
     const r = attendanceService.getRecordsOn(d)[s.rollNumber];
-    return { roll: s.rollNumber, name: s.name, time: r ? r.t : null, bit: r ? 1 : 0, residence: s.residence };
+    const g = parseStudentGender(s);
+    const a = parseStudentAccom(s);
+    return {
+      roll: s.rollNumber,
+      name: s.name,
+      time: r ? r.t : null,
+      bit: r ? 1 : 0,
+      residence: s.residence,
+      gender: g,
+      accommodation: a,
+      rawStudent: s
+    };
   });
   const pc = all.filter(r => r.bit).length;
 
-  const rows = all.filter(r => (q.filter === 'all' || (q.filter === 'present' ? r.bit : !r.bit)) && (!q.res || r.residence === q.res) && (!q.q || (r.roll + ' ' + r.name + ' ' + r.residence).toLowerCase().includes(q.q.trim().toLowerCase())));
+  const matchesStatFilter = r => {
+    if (statFilter === 'all') return true;
+    if (statFilter === 'boys') return r.gender === 'Boy';
+    if (statFilter === 'girls') return r.gender === 'Girl';
+    if (statFilter === 'hostellers') return r.accommodation === 'Hosteller';
+    if (statFilter === 'dayscholars') return r.accommodation === 'Day Scholar';
+    if (statFilter === 'boys_dayscholar') return r.gender === 'Boy' && r.accommodation === 'Day Scholar';
+    if (statFilter === 'boys_hosteller') return r.gender === 'Boy' && r.accommodation === 'Hosteller';
+    if (statFilter === 'girls_dayscholar') return r.gender === 'Girl' && r.accommodation === 'Day Scholar';
+    if (statFilter === 'girls_hosteller') return r.gender === 'Girl' && r.accommodation === 'Hosteller';
+    return true;
+  };
+
+  const rows = all.filter(r =>
+    (q.filter === 'all' || (q.filter === 'present' ? r.bit : !r.bit)) &&
+    (!q.res || r.residence === q.res) &&
+    (!q.q || (r.roll + ' ' + r.name + ' ' + (r.residence || '')).toLowerCase().includes(q.q.trim().toLowerCase())) &&
+    matchesStatFilter(r)
+  );
 
   const cols = [
     { key: 'roll', label: 'Roll number', html: r => rollc(r.roll) },
     { key: 'name', label: 'Student name', html: r => `<button class="th-btn" style="font-weight:500" data-act="openStudent" data-roll="${r.roll}">${esc(r.name)}</button>` },
+    { key: 'gender', label: 'Gender', html: r => r.gender ? `<span class="badge ${r.gender === 'Boy' ? 'info' : 'ok'}">${esc(r.gender)}</span>` : '<span class="muted small">—</span>' },
     { key: 'residence', label: 'Residence', html: r => resBadge(r.residence) },
     { key: 'time', label: 'Scan time', html: r => (r.time ? t12(r.time) : '<span class="muted">—</span>') },
     { key: 'bit', label: 'Flip-Flop Bit', html: r => (r.bit ? badge('ok', 'Present · 1') : badge('warn', 'Absent · 0')) },
@@ -578,10 +615,112 @@ function pageDaily() {
     return `<button class="reg ${b ? 'on' : ''} ${s.residence === 'Hosteller' ? 'h' : ''} ${isSel ? 'sel' : ''}" data-act="selectStudentBit" data-roll="${s.rollNumber}" title="${s.rollNumber} (${s.name}): bit=${b}">${i + 1}</button>`;
   }).join('');
 
-  const dayRecs = attendanceService.getRecordsOn(d);
-  const verifiedList = Object.entries(dayRecs)
-    .sort((a, b) => (b[1].t || '').localeCompare(a[1].t || ''))
-    .slice(0, 8);
+  // 9 Responsive Statistic Cards
+  const statCards = [
+    {
+      key: 'all',
+      title: 'Total Students',
+      icon: 'students',
+      value: stats.total,
+      hasData: true,
+      meta: 'Active Roster',
+      pillClass: 'stat-pill ok',
+      fullWidth: true
+    },
+    {
+      key: 'boys',
+      title: 'Boys',
+      icon: 'male',
+      value: stats.boys.count,
+      hasData: stats.boys.hasData,
+      meta: stats.boys.hasData ? (stats.boys.missing > 0 ? `${stats.boys.missing} incomplete` : 'Complete') : 'Data incomplete',
+      pillClass: stats.boys.hasData && stats.boys.missing === 0 ? 'stat-pill ok' : 'stat-pill warn'
+    },
+    {
+      key: 'girls',
+      title: 'Girls',
+      icon: 'female',
+      value: stats.girls.count,
+      hasData: stats.girls.hasData,
+      meta: stats.girls.hasData ? (stats.girls.missing > 0 ? `${stats.girls.missing} incomplete` : 'Complete') : 'Data incomplete',
+      pillClass: stats.girls.hasData && stats.girls.missing === 0 ? 'stat-pill ok' : 'stat-pill warn'
+    },
+    {
+      key: 'hostellers',
+      title: 'Hostellers',
+      icon: 'home',
+      value: stats.hostellers.count,
+      hasData: stats.hostellers.hasData,
+      meta: stats.hostellers.hasData ? (stats.hostellers.missing > 0 ? `${stats.hostellers.missing} incomplete` : 'Complete') : 'Data incomplete',
+      pillClass: stats.hostellers.hasData && stats.hostellers.missing === 0 ? 'stat-pill ok' : 'stat-pill warn'
+    },
+    {
+      key: 'dayscholars',
+      title: 'Day Scholars',
+      icon: 'sun',
+      value: stats.dayScholars.count,
+      hasData: stats.dayScholars.hasData,
+      meta: stats.dayScholars.hasData ? (stats.dayScholars.missing > 0 ? `${stats.dayScholars.missing} incomplete` : 'Complete') : 'Data incomplete',
+      pillClass: stats.dayScholars.hasData && stats.dayScholars.missing === 0 ? 'stat-pill ok' : 'stat-pill warn'
+    },
+    {
+      key: 'boys_dayscholar',
+      title: 'Boys — Day Scholars',
+      icon: 'male_sun',
+      value: stats.boysDayScholar.count,
+      hasData: stats.boysDayScholar.hasData,
+      meta: stats.boysDayScholar.hasData ? (stats.boysDayScholar.missing > 0 ? `${stats.boysDayScholar.missing} incomplete` : 'Complete') : 'Data incomplete',
+      pillClass: stats.boysDayScholar.hasData && stats.boysDayScholar.missing === 0 ? 'stat-pill ok' : 'stat-pill warn'
+    },
+    {
+      key: 'boys_hosteller',
+      title: 'Boys — Hostellers',
+      icon: 'male_home',
+      value: stats.boysHosteller.count,
+      hasData: stats.boysHosteller.hasData,
+      meta: stats.boysHosteller.hasData ? (stats.boysHosteller.missing > 0 ? `${stats.boysHosteller.missing} incomplete` : 'Complete') : 'Data incomplete',
+      pillClass: stats.boysHosteller.hasData && stats.boysHosteller.missing === 0 ? 'stat-pill ok' : 'stat-pill warn'
+    },
+    {
+      key: 'girls_dayscholar',
+      title: 'Girls — Day Scholars',
+      icon: 'female_sun',
+      value: stats.girlsDayScholar.count,
+      hasData: stats.girlsDayScholar.hasData,
+      meta: stats.girlsDayScholar.hasData ? (stats.girlsDayScholar.missing > 0 ? `${stats.girlsDayScholar.missing} incomplete` : 'Complete') : 'Data incomplete',
+      pillClass: stats.girlsDayScholar.hasData && stats.girlsDayScholar.missing === 0 ? 'stat-pill ok' : 'stat-pill warn'
+    },
+    {
+      key: 'girls_hosteller',
+      title: 'Girls — Hostellers',
+      icon: 'female_home',
+      value: stats.girlsHosteller.count,
+      hasData: stats.girlsHosteller.hasData,
+      meta: stats.girlsHosteller.hasData ? (stats.girlsHosteller.missing > 0 ? `${stats.girlsHosteller.missing} incomplete` : 'Complete') : 'Data incomplete',
+      pillClass: stats.girlsHosteller.hasData && stats.girlsHosteller.missing === 0 ? 'stat-pill ok' : 'stat-pill warn'
+    }
+  ];
+
+  const renderCardIcon = icon => {
+    if (icon === 'male_sun') return `<span class="stat-card-ic">${ic('male', 14)}${ic('sun', 14)}</span>`;
+    if (icon === 'male_home') return `<span class="stat-card-ic">${ic('male', 14)}${ic('home', 14)}</span>`;
+    if (icon === 'female_sun') return `<span class="stat-card-ic">${ic('female', 14)}${ic('sun', 14)}</span>`;
+    if (icon === 'female_home') return `<span class="stat-card-ic">${ic('female', 14)}${ic('home', 14)}</span>`;
+    return `<span class="stat-card-ic">${ic(icon, 16)}</span>`;
+  };
+
+  const statCardsHtml = `<div class="stat-grid">${statCards.map(c => `
+    <button class="stat-card ${c.fullWidth ? 'full-width' : ''} ${statFilter === c.key ? 'active' : ''}" data-act="setStatFilter" data-filter="${c.key}" title="Click to filter student list by ${esc(c.title)}">
+      <div class="stat-card-title">
+        ${renderCardIcon(c.icon)}
+        <span class="stat-title-text">${esc(c.title)}</span>
+      </div>
+      <div class="stat-card-v ${!c.hasData ? 'empty-val' : ''}">${c.hasData ? c.value : '—'}</div>
+      <div class="stat-card-meta">
+        <span class="${c.pillClass}">${esc(c.meta)}</span>
+      </div>
+    </button>
+  `).join('')}</div>`;
 
   return `<div class="notice info" style="margin-bottom:16px">${ic('info', 18)}<div>Session for ${esc(D.long(d))}: <b>${info.label}</b>${info.reason ? ' · ' + esc(info.reason) : ''}. FSM window: ${t12(info.times.open)}–${t12(info.times.close)}.</div></div>
   <div class="grid daily-grid">
@@ -601,91 +740,35 @@ function pageDaily() {
             : `<button class="btn btn-warn" data-act="closeSession">${ic('x', 16)} Close Session</button>`}
           <button class="btn btn-danger" data-act="resetDay">${ic('reset', 16)} Reset Today's Day</button>
         </div>
-        <div class="row small" style="margin-bottom:10px"><b>${pc}</b> present · <b>${all.length - pc}</b> absent · <b>${((pc / all.length) * 100).toFixed(1)}%</b> attendance</div>
-        ${table('daily', { cols, rows, size: q.size, caption: 'Attendance for ' + d, rowCls: r => (sc.flash === r.roll ? 'flash' : '') })}
+        ${statFilter !== 'all' ? `
+        <div class="filter-notice">
+          <div class="row" style="gap:8px">
+            ${ic('filter', 16)}
+            <span>Filtered by: <b>${esc(STAT_LABELS[statFilter] || statFilter)}</b> (${rows.length} student${rows.length === 1 ? '' : 's'})</span>
+          </div>
+          <button class="btn btn-sm" data-act="clearStatFilter">${ic('x', 14)} Clear Filter</button>
+        </div>` : ''}
+        <div class="row small" style="margin-bottom:10px"><b>${pc}</b> present · <b>${all.length - pc}</b> absent · <b>${all.length ? ((pc / all.length) * 100).toFixed(1) : 0}%</b> attendance</div>
+        ${table('daily', {
+          cols,
+          rows,
+          size: q.size,
+          caption: 'Attendance for ' + d,
+          rowCls: r => (sc.flash === r.roll ? 'flash' : ''),
+          empty: `<div class="empty"><b>No matching students</b>${statFilter !== 'all' ? `No students found matching category "${esc(STAT_LABELS[statFilter] || statFilter)}".` : 'Adjust the search or filters.'}</div>`
+        })}
       </section>
     </div>
     <div class="stack sticky">
-      <section class="card">
-        <div class="card-h">
-          <h2>Hardware Attendance Monitor</h2>
-          <span class="sim-tag hw">Real Hardware Flow</span>
-        </div>
-        <p class="muted small">Hardware pipeline: ESP32-CAM QR/barcode capture → Basys 3 FPGA Verilog FSM validation → secure upload to Firebase.</p>
-
-        <div class="stack" style="margin-top:14px">
-          <div class="hw-pipeline">
-            <div class="hw-step">
-              <div class="hw-icon">${ic('barcode', 18)}</div>
-              <div style="flex:1">
-                <div class="hw-title">ESP32-CAM Optical Reader</div>
-                <div class="hw-sub muted">QR / Barcode capture · Firmware pending</div>
-              </div>
-              <span class="badge muted">Awaiting Firmware</span>
-            </div>
-            <div class="hw-step">
-              <div class="hw-icon">${ic('chip', 18)}</div>
-              <div style="flex:1">
-                <div class="hw-title">Basys 3 FPGA Verilog FSM</div>
-                <div class="hw-sub muted">9-state hardware controller &amp; 64-bit register</div>
-              </div>
-              <span class="badge ${serialService.status === 'connected' ? 'ok' : 'info'}">${serialService.status === 'connected' ? 'UART Connected' : 'Spec Validated'}</span>
-            </div>
-            <div class="hw-step">
-              <div class="hw-icon">${ic('check', 18)}</div>
-              <div style="flex:1">
-                <div class="hw-title">Cloud Backend Ingestion</div>
-                <div class="hw-sub muted">Netlify serverless function &amp; Firestore atomic write</div>
-              </div>
-              <span class="badge ok">Live Ingestion Ready</span>
-            </div>
-          </div>
-
-          <div class="notice info" style="margin:0">
-            ${ic('info', 18)}
-            <div class="small">
-              <b>Hardware Mode Active:</b> Manual browser scanning is disabled. Attendance is automatically populated upon receipt from the hardware pipeline and backend.
-            </div>
-          </div>
-
+      <section class="card stat-dash">
+        <div class="stat-dash-h">
           <div>
-            <div class="label" style="margin-bottom:6px">Selected Student Register Bit · ${esc(stu ? stu.rollNumber : 'Overview')}</div>
-            <div class="bitbox">
-              <div class="bit ${bit ? 'on' : ''}">${stu ? bit : '–'}</div>
-              <div class="small muted">
-                ${stu ? `<b>${esc(stu.name)}</b> (${esc(stu.rollNumber)}) · ${esc(stu.residence)}<br>${bit ? `Present · Scan recorded at ${t12(curRecord.t)}` : 'Absent (Register Bit = 0)'}` : 'Select a student from the table or register grid to inspect register bit.'}
-              </div>
-            </div>
+            <h2 style="font-size:16px;font-weight:700">Student Statistics</h2>
+            <p class="muted small" style="margin:2px 0 0 0">Roster demographics &amp; accommodation</p>
           </div>
-
-          <div class="card flat" style="padding:12px">
-            <div class="row spread">
-              <div>
-                <span class="label">Backend Synchronization</span>
-                <div class="tiny muted">Cloud Firestore: <b>${isFirebaseConfigured() ? 'Connected' : 'Local Demo Mode'}</b></div>
-              </div>
-              <button class="btn btn-sm btn-primary" data-act="syncCloud">${ic('reset', 14)} Refresh Live Feed</button>
-            </div>
-          </div>
-
-          <div>
-            <div class="row spread" style="margin-bottom:6px">
-              <div class="label">Verified Arrivals on ${esc(D.short(d))}</div>
-              <span class="badge info">${verifiedList.length} shown · ${pc} total</span>
-            </div>
-            ${verifiedList.length ? `<ul class="log">${verifiedList.map(([roll, rec]) => {
-              const student = attendanceService.getStudent(roll);
-              return `<li>
-                <span>
-                  <span class="rollc">${esc(roll)}</span>
-                  <span style="font-weight:500;margin-left:4px">${esc(student ? student.name : roll)}</span>
-                  <span class="muted" style="margin-left:6px">${esc(t12(rec.t))}</span>
-                </span>
-                ${badge('ok', 'Verified · 1')}
-              </li>`;
-            }).join('')}</ul>` : '<p class="muted small">No hardware attendance records uploaded for this date yet. Verified records from ESP32-CAM will appear here.</p>'}
-          </div>
+          <span class="badge info">Active Roster</span>
         </div>
+        ${statCardsHtml}
       </section>
 
       <section class="card">
@@ -710,6 +793,7 @@ function pageStudents() {
     { key: 'department', label: 'Department' },
     { key: 'classSection', label: 'Class' },
     { key: 'semester', label: 'Sem' },
+    { key: 'gender', label: 'Gender', html: r => r.gender ? `<span class="badge ${r.gender === 'Boy' || r.gender === 'Male' ? 'info' : 'ok'}">${esc(r.gender)}</span>` : '<span class="muted small">—</span>' },
     { key: 'residence', label: 'Residence', html: r => resBadge(r.residence) },
     { key: 'pct', label: 'Semester %', val: r => st[r.rollNumber].pct, cls: 'num', html: r => `<span class="${st[r.rollNumber].pct !== null && st[r.rollNumber].pct < attendanceService.state.settings.threshold ? 'c-warn' : 'c-ok'}" style="font-weight:600">${pctText(st[r.rollNumber].pct)}</span>` },
     { key: 'act', label: '', nosort: true, html: r => `<button class="btn btn-sm" data-act="openStudent" data-roll="${r.rollNumber}">${ic('edit', 14)} Edit</button>` }
@@ -738,9 +822,12 @@ function studentModal(roll) {
   const n = attendanceService.getClockNow();
   const f = (id, l, v, extra = '') => `<div class="field"><label for="${id}">${l}</label><input id="${id}" name="${id}" class="input" value="${esc(v)}" ${extra}></div>`;
 
+  const isBoy = s.gender === 'Boy' || s.gender === 'Male';
+  const isGirl = s.gender === 'Girl' || s.gender === 'Female';
+
   return `<div class="row spread">
     <div><h2 style="margin:0">${esc(s.name)}</h2><span class="rollc muted">${s.rollNumber} (FPGA Bit ${s.index})</span></div>
-    <span class="row" style="gap:6px">${resBadge(s.residence)}</span>
+    <span class="row" style="gap:6px">${s.gender ? `<span class="badge ${isBoy ? 'info' : 'ok'}">${esc(s.gender)}</span>` : ''}${resBadge(s.residence)}</span>
   </div>
   <div class="grid g3" style="margin:16px 0">
     <div class="card flat kpi"><div class="label">Semester</div><div class="v ${st.pct !== null && st.pct < attendanceService.state.settings.threshold ? 'c-warn' : 'c-ok'}" style="font-size:24px">${pctText(st.pct)}</div></div>
@@ -757,6 +844,11 @@ function studentModal(roll) {
       ${f('department', 'Department', s.department, 'required maxlength="60"')}
       ${f('classSection', 'Class / Section', s.classSection, 'required maxlength="30"')}
       ${f('semester', 'Semester', s.semester, 'required maxlength="1"')}
+      <div class="field"><label for="gender">Gender</label><select id="gender" name="gender" class="select">
+        <option value="" ${!s.gender ? 'selected' : ''}>— Unspecified —</option>
+        <option value="Boy" ${isBoy ? 'selected' : ''}>Boy</option>
+        <option value="Girl" ${isGirl ? 'selected' : ''}>Girl</option>
+      </select></div>
       <div class="field"><label for="residence">Residence</label><select id="residence" name="residence" class="select">${RES.map(o => `<option ${s.residence === o ? 'selected' : ''}>${o}</option>`).join('')}</select></div>
     </div>
     <div id="stuErr" class="err" role="alert"></div>
@@ -1168,6 +1260,17 @@ const ACTIONS = {
     T('daily').page = 1;
     render();
   },
+  setStatFilter(el) {
+    const filter = el.dataset.filter || 'all';
+    UI.daily.statFilter = (UI.daily.statFilter === filter) ? 'all' : filter;
+    T('daily').page = 1;
+    render();
+  },
+  clearStatFilter() {
+    UI.daily.statFilter = 'all';
+    T('daily').page = 1;
+    render();
+  },
   shiftDate(el) {
     const newDate = D.add(attendanceService.state.ui.selDate, +el.dataset.d);
     attendanceService.state.ui.selDate = newDate;
@@ -1329,8 +1432,8 @@ const ACTIONS = {
   },
   exportRoster() {
     const rows = [
-      ['rollNumber', 'name', 'email', 'department', 'classSection', 'semester', 'residence'],
-      ...attendanceService.state.students.map(s => [s.rollNumber, s.name, s.email, s.department, s.classSection, s.semester, s.residence])
+      ['rollNumber', 'name', 'email', 'department', 'classSection', 'semester', 'gender', 'residence'],
+      ...attendanceService.state.students.map(s => [s.rollNumber, s.name, s.email, s.department, s.classSection, s.semester, s.gender || '', s.residence])
     ];
     exportCSV({ file: 'AttendEdge_Roster', title: 'Student Roster', columns: rows[0], rows: rows.slice(1) });
   },
@@ -1366,6 +1469,14 @@ const ACTIONS = {
           <div class="field">
             <label for="newSem">Semester</label>
             <input id="newSem" name="semester" class="input" value="${esc(attendanceService.state.settings.semester)}" required maxlength="1">
+          </div>
+          <div class="field">
+            <label for="newGender">Gender</label>
+            <select id="newGender" name="gender" class="select">
+              <option value="">— Unspecified —</option>
+              <option value="Boy">Boy</option>
+              <option value="Girl">Girl</option>
+            </select>
           </div>
           <div class="field">
             <label for="newRes">Residence</label>
@@ -1449,6 +1560,7 @@ const FORMS = {
       department: f.elements.department.value.trim(),
       classSection: f.elements.classSection.value.trim(),
       semester: f.elements.semester.value.trim(),
+      gender: f.elements.gender ? f.elements.gender.value : '',
       residence: f.elements.residence.value
     };
 
@@ -1478,6 +1590,7 @@ const FORMS = {
       department: f.elements.department ? f.elements.department.value.trim() : '',
       classSection: f.elements.classSection ? f.elements.classSection.value.trim() : '',
       semester: f.elements.semester ? f.elements.semester.value.trim() : '',
+      gender: f.elements.gender ? f.elements.gender.value : '',
       residence: f.elements.residence ? f.elements.residence.value : 'Day Scholar'
     };
     try {

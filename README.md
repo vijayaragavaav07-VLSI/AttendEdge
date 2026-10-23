@@ -99,14 +99,14 @@ c:/attadence/
     │   └── functions/
     │       └── recordAttendance.js  # Atomic Firestore serverless verification
     ├── src/
-    │   ├── logic/           # Attendance FSM definition & status codes
+    │   ├── logic/           # Attendance FSM definition, status codes & statistics engine
     │   ├── firebase/        # Authentication, Firestore CRUD & configuration
     │   ├── services/        # Attendance controller & Web Serial API service
     │   ├── reports/         # PDF and CSV report export engine
     │   ├── components/      # UI icons & logo components
     │   ├── styles/          # AttendEdge responsive CSS design system
-    │   └── main.js          # Main UI routing & event handling
-    └── tests/               # 80 Vitest unit, security & workflow tests
+    │   └── main.js          # Main UI routing, dashboard & event handling
+    └── tests/               # 88 Vitest unit, security, workflow & statistics tests
 ```
 
 ---
@@ -158,7 +158,7 @@ Open **`http://localhost:5173`** in your browser.
 ```bash
 npm test
 ```
-Executes all 80 unit, security, and transaction verification tests via Vitest.
+Executes all 88 unit, security, and transaction verification tests via Vitest.
 
 ### Build Production Bundle
 ```bash

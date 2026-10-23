@@ -201,7 +201,7 @@ export function getCurrentUser() {
       }
     }
   } catch (e) {
-    if (window.__attendedgeAuth && window.__attendedgeAuth.isDemo === true) {
+    if (typeof window !== 'undefined' && window.__attendedgeAuth && window.__attendedgeAuth.isDemo === true) {
       return window.__attendedgeAuth;
     }
   }

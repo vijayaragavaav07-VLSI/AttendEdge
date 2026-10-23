@@ -16,6 +16,8 @@ web-app/functions/node_modules/
 *.key
 
 # Temporary & build outputs
+dist/
+web-app/dist/
 dist-ssr/
 web-app/dist-ssr/
 *.tsbuildinfo

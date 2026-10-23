@@ -1,0 +1,10 @@
+{
+  "name": "attendedge-project",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AttendEdge — Real-time FPGA & IoT Smart Attendance Verification System",
+  "scripts": {
+    "build": "npm --prefix web-app run build",
+    "test": "npm --prefix web-app run test"
+  }
+}
