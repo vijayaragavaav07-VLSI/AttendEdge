@@ -88,10 +88,10 @@ npm run build
 
 ---
 
-## 4. Hardware Connection vs. Software Simulation
+## 4. Hardware Architecture & Real-Time Monitoring
 
-- **Software FSM Mode (Default)**: Runs the cycle-accurate 9-state FSM model in memory. Allows complete simulation of barcodes, time windows, and 63 flip-flops even without physical hardware.
-- **Hardware Connection Mode (Web Serial)**: On the **Device Status** page, click **Connect via Web Serial** to connect a physical Basys 3 FPGA over USB UART at 115200 baud (8N1). If disconnected, the UI explicitly shows **"FPGA Disconnected (Sim FSM)"** and will never fake a live connection.
+- **Hardware Flow (Default)**: Intended physical flow is ESP32-CAM QR/barcode capture → Basys 3 FPGA Verilog FSM validation → secure upload to Firebase → AttendEdge web application live display. Manual browser scanning and FSM event simulation are disabled.
+- **Hardware Connection Mode (Web Serial)**: On the **Device Status** page, click **Connect via Web Serial** to connect a physical Basys 3 FPGA over USB UART at 115200 baud (8N1). If disconnected, the UI explicitly shows the device status and never fakes a live connection.
 
 ---
 

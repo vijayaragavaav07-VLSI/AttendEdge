@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+web-app/node_modules/
+web-app/functions/node_modules/
+.pnp/
+.pnp.js
+
+# Environment variables & secrets (CRITICAL: Never commit service accounts or credentials)
+.env
+.env.*
+!.env.example
+*.local
+*serviceAccount*.json
+*service-account*.json
+*.pem
+*.key
+
+# Temporary & build outputs
+dist-ssr/
+web-app/dist-ssr/
+*.tsbuildinfo
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+firebase-debug.log*
+firestore-debug.log*
+ui-debug.log*
+
+# Operating System & Editor Files
+.DS_Store
+Thumbs.db
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Vivado generated / temporary simulation files
+*.jou
+*.log
+*.str
+.Xil/
+hd_visual/
+*.backup

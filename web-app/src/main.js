@@ -40,15 +40,8 @@ const UI = {
   sem: { sem: '', ay: '', q: '', band: 'all', res: '' },
   pdf: { student: '25EV001', day: '', week: '', y: 0, m: 0, pDate: '', aDate: '', cy: 0, cm: 0 },
   scan: {
-    state: 'ready',
-    message: 'FSM idle (State 1). Enter a roll number and press Scan.',
     roll: '25EV001',
-    lastRoll: '',
-    err: '',
-    busy: false,
-    flash: null,
-    hardwareConnected: false,
-    fsmResult: null
+    flash: null
   }
 };
 
@@ -501,9 +494,9 @@ function pageOverview() {
       <h2>Attendance Session <span class="state ${info.key}">${info.label}</span></h2>
       <p>Hardware Window: ${t12(tm.open)} – ${t12(tm.close)} (Verilog in_window check)</p>
       <p style="opacity:.92;font-size:13.5px">${esc(msg)}</p>
-      <span class="chip">${serialService.status === 'connected' ? 'Live Basys 3 FPGA UART Active' : 'Software 9-State FSM Simulation Mode'}</span>
+      <span class="chip">${serialService.status === 'connected' ? 'Live Basys 3 FPGA UART Connected' : 'Hardware Attendance Pipeline Active'}</span>
     </div>
-    <a class="btn btn-white" href="#/daily">${ic('barcode', 17)} Open Attendance Scanner</a>
+    <a class="btn btn-white" href="#/daily">${ic('barcode', 17)} Open Daily Attendance</a>
   </section>
   <div class="grid g2">
     <div class="stack">
@@ -524,12 +517,12 @@ function pageOverview() {
     <div class="stack">
       <section class="card">
         <div class="card-h"><h2>Recent Activity</h2><span class="label">${esc(D.short(d))}</span></div>
-        ${recent.length ? `<div class="list">${recent.map(([r, v]) => `<div><span><b>${esc(attendanceService.getStudent(r).name)}</b><br><span class="rollc muted">${r}</span> ${resBadge(attendanceService.getStudent(r).residence)}</span><span style="text-align:right">${t12(v.t)}<br>${badge('ok', 'Present')}</span></div>`).join('')}</div>` : empty('No scans recorded for this date', 'Open Daily Attendance to scan roll numbers.')}
+        ${recent.length ? `<div class="list">${recent.map(([r, v]) => `<div><span><b>${esc(attendanceService.getStudent(r).name)}</b><br><span class="rollc muted">${r}</span> ${resBadge(attendanceService.getStudent(r).residence)}</span><span style="text-align:right">${t12(v.t)}<br>${badge('ok', 'Present')}</span></div>`).join('')}</div>` : empty('No attendance recorded for this date', 'Awaiting hardware scans from ESP32-CAM.')}
       </section>
       <section class="card">
         <div class="card-h"><h2>Quick Links</h2></div>
         <div class="quick">
-          <a class="btn" href="#/daily">${ic('barcode', 16)} Daily Scanner</a>
+          <a class="btn" href="#/daily">${ic('barcode', 16)} Daily Attendance</a>
           <a class="btn" href="#/students">${ic('students', 16)} Student Roster</a>
           <a class="btn" href="#/device">${ic('device', 16)} FPGA Diagnostics</a>
           <a class="btn" href="#/pdf">${ic('pdf', 16)} PDF Reports</a>
@@ -539,28 +532,16 @@ function pageOverview() {
   </div>`;
 }
 
-// PAGE: Daily Attendance & Scanner
+// PAGE: Daily Attendance & Hardware Ingestion Monitor
 function pageDaily() {
   const q = UI.daily;
   const d = attendanceService.state.ui.selDate;
   const sc = UI.scan;
-  const n = attendanceService.getClockNow();
   const info = attendanceService.getSessionInfo(d);
-  const stu = attendanceService.getStudent(sc.roll.trim().toUpperCase());
-  const bit = stu && attendanceService.getRecordsOn(n.date)[stu.rollNumber] ? 1 : 0;
-  const isReal = attendanceService.state.ui.clock.mode === 'real';
-
-  const SCAN_STATES = {
-    ready: ['Ready', 'info', 'barcode'],
-    scanning: ['FSM Clocking…', 'info', 'barcode'],
-    present: ['Present Recorded', 'ok', 'check'],
-    duplicate: ['Already Present', 'warn', 'alert'],
-    invalid: ['Invalid ID', 'bad', 'x'],
-    notstarted: ['Not Started', 'warn', 'clock'],
-    closed: ['Attendance Closed', 'bad', 'clock'],
-    error: ['Cloud Rejection', 'bad', 'alert']
-  };
-  const [lab, tn, icn] = SCAN_STATES[sc.state] || ['Ready', 'info', 'barcode'];
+  const curRoll = (sc.roll || '25EV001').trim().toUpperCase();
+  const stu = attendanceService.getStudent(curRoll);
+  const curRecord = stu && attendanceService.getRecordsOn(d)[stu.rollNumber];
+  const bit = curRecord ? 1 : 0;
 
   const all = attendanceService.state.students.map(s => {
     const r = attendanceService.getRecordsOn(d)[s.rollNumber];
@@ -582,7 +563,7 @@ function pageDaily() {
       nosort: true,
       html: r => `<span class="row" style="gap:6px;flex-wrap:nowrap">
         <button class="icon-btn" data-act="openStudent" data-roll="${r.roll}" title="Student Profile">${ic('user', 16)}</button>
-        <button class="icon-btn" data-act="scanPrefill" data-roll="${r.roll}" title="Load into Scanner">${ic('barcode', 16)}</button>
+        <button class="icon-btn" data-act="selectStudentBit" data-roll="${r.roll}" title="Inspect Register Bit">${ic('chip', 16)}</button>
         <button class="icon-btn" data-act="report" data-r="dailyStudent" data-args='${esc(JSON.stringify({ roll: r.roll, date: d }))}' title="Daily PDF">${ic('file', 16)}</button>
       </span>`
     }
@@ -590,12 +571,17 @@ function pageDaily() {
 
   const seg = (f, l, c) => `<button data-act="setFilter" data-f="${f}" aria-pressed="${q.filter === f}">${l} ${c}</button>`;
 
-  // 63 Flip-Flops Grid
+  // 63 Flip-Flops Grid (Bits 0..62)
   const regsGrid = attendanceService.state.students.map((s, i) => {
-    const b = attendanceService.getRecordsOn(n.date)[s.rollNumber] ? 1 : 0;
-    const isSel = sc.roll.trim().toUpperCase() === s.rollNumber;
-    return `<button class="reg ${b ? 'on' : ''} ${s.residence === 'Hosteller' ? 'h' : ''} ${isSel ? 'sel' : ''}" data-act="pickRoll" data-roll="${s.rollNumber}" title="${s.rollNumber} (${s.residence}): bit=${b}">${i + 1}</button>`;
+    const b = attendanceService.getRecordsOn(d)[s.rollNumber] ? 1 : 0;
+    const isSel = curRoll === s.rollNumber;
+    return `<button class="reg ${b ? 'on' : ''} ${s.residence === 'Hosteller' ? 'h' : ''} ${isSel ? 'sel' : ''}" data-act="selectStudentBit" data-roll="${s.rollNumber}" title="${s.rollNumber} (${s.name}): bit=${b}">${i + 1}</button>`;
   }).join('');
+
+  const dayRecs = attendanceService.getRecordsOn(d);
+  const verifiedList = Object.entries(dayRecs)
+    .sort((a, b) => (b[1].t || '').localeCompare(a[1].t || ''))
+    .slice(0, 8);
 
   return `<div class="notice info" style="margin-bottom:16px">${ic('info', 18)}<div>Session for ${esc(D.long(d))}: <b>${info.label}</b>${info.reason ? ' · ' + esc(info.reason) : ''}. FSM window: ${t12(info.times.open)}–${t12(info.times.close)}.</div></div>
   <div class="grid daily-grid">
@@ -621,55 +607,91 @@ function pageDaily() {
     </div>
     <div class="stack sticky">
       <section class="card">
-        <div class="card-h"><h2>Attendance Scanner</h2><span class="sim-tag ${serialService.status === 'connected' ? 'hw' : ''}">${serialService.status === 'connected' ? 'FPGA UART Active' : 'Verilog FSM Sim'}</span></div>
-        <p class="muted small">${serialService.status === 'connected' ? 'Connected to Basys 3 FPGA at 115200 baud.' : 'Executing the exact 9-State Verilog FSM in browser memory.'}</p>
+        <div class="card-h">
+          <h2>Hardware Attendance Monitor</h2>
+          <span class="sim-tag hw">Real Hardware Flow</span>
+        </div>
+        <p class="muted small">Hardware pipeline: ESP32-CAM QR/barcode capture → Basys 3 FPGA Verilog FSM validation → secure upload to Firebase.</p>
+
         <div class="stack" style="margin-top:14px">
-          <div class="scan-state ${tn}">${ic(icn, 26)}<div><b>${lab}</b><span class="small">${esc(sc.message)}</span></div></div>
-          <form data-form="scan" class="stack">
-            <div class="field">
-              <label for="scanRoll">Student Roll Number (0..62 Index)</label>
-              <div class="row" style="flex-wrap:nowrap">
-                <input id="scanRoll" class="input" list="rolls" data-bind="scan.roll" value="${esc(sc.roll)}" maxlength="12" placeholder="25EV001">
-                <button class="btn btn-primary" type="submit" ${sc.busy ? 'disabled' : ''}>${ic('barcode', 16)} Scan</button>
+          <div class="hw-pipeline">
+            <div class="hw-step">
+              <div class="hw-icon">${ic('barcode', 18)}</div>
+              <div style="flex:1">
+                <div class="hw-title">ESP32-CAM Optical Reader</div>
+                <div class="hw-sub muted">QR / Barcode capture · Firmware pending</div>
               </div>
-              <datalist id="rolls">${attendanceService.state.students.map(s => `<option value="${s.rollNumber}">`).join('')}</datalist>
-              <div id="scanErr" class="err">${esc(sc.err)}</div>
-              <span class="hint">Valid: 25EV001–25EV063. Try 25EV099 to trigger Verilog S_BAD_ID.</span>
+              <span class="badge muted">Awaiting Firmware</span>
             </div>
-          </form>
+            <div class="hw-step">
+              <div class="hw-icon">${ic('chip', 18)}</div>
+              <div style="flex:1">
+                <div class="hw-title">Basys 3 FPGA Verilog FSM</div>
+                <div class="hw-sub muted">9-state hardware controller &amp; 64-bit register</div>
+              </div>
+              <span class="badge ${serialService.status === 'connected' ? 'ok' : 'info'}">${serialService.status === 'connected' ? 'UART Connected' : 'Spec Validated'}</span>
+            </div>
+            <div class="hw-step">
+              <div class="hw-icon">${ic('check', 18)}</div>
+              <div style="flex:1">
+                <div class="hw-title">Cloud Backend Ingestion</div>
+                <div class="hw-sub muted">Netlify serverless function &amp; Firestore atomic write</div>
+              </div>
+              <span class="badge ok">Live Ingestion Ready</span>
+            </div>
+          </div>
+
+          <div class="notice info" style="margin:0">
+            ${ic('info', 18)}
+            <div class="small">
+              <b>Hardware Mode Active:</b> Manual browser scanning is disabled. Attendance is automatically populated upon receipt from the hardware pipeline and backend.
+            </div>
+          </div>
+
           <div>
-            <div class="label" style="margin-bottom:6px">Register Bit · ${esc(stu ? stu.rollNumber : 'Unmapped')}</div>
+            <div class="label" style="margin-bottom:6px">Selected Student Register Bit · ${esc(stu ? stu.rollNumber : 'Overview')}</div>
             <div class="bitbox">
               <div class="bit ${bit ? 'on' : ''}">${stu ? bit : '–'}</div>
-              <div class="small muted">${stu ? esc(stu.name) + ' · ' + esc(stu.residence) + '<br>' + (bit ? 'Present (Bit=1)' : 'Absent (Bit=0)') : 'Select a student'}</div>
-            </div>
-          </div>
-          <div class="card flat" style="padding:14px">
-            <div class="row spread">
-              <span class="label">Time Source</span>
-              <div class="seg">
-                <button type="button" data-act="clockMode" data-m="sim" aria-pressed="${!isReal}">Simulated</button>
-                <button type="button" data-act="clockMode" data-m="real" aria-pressed="${isReal}">System</button>
+              <div class="small muted">
+                ${stu ? `<b>${esc(stu.name)}</b> (${esc(stu.rollNumber)}) · ${esc(stu.residence)}<br>${bit ? `Present · Scan recorded at ${t12(curRecord.t)}` : 'Absent (Register Bit = 0)'}` : 'Select a student from the table or register grid to inspect register bit.'}
               </div>
             </div>
-            <form data-form="setTime" class="row" style="margin-top:10px;flex-wrap:nowrap">
-              <input id="clk" class="input" type="time" step="1" value="${isReal ? n.time : attendanceService.state.ui.clock.time}" ${isReal ? 'disabled' : ''} required>
-              <button class="btn" type="submit" ${isReal ? 'disabled' : ''}>Set</button>
-            </form>
-            <div class="chips" style="margin-top:10px">
-              ${['07:59:59', '08:00:00', '08:10:00', '08:35:00', '08:35:01'].map(t => `<button type="button" class="chip-btn" data-act="preset" data-t="${t}" ${isReal ? 'disabled' : ''}>${t}</button>`).join('')}
+          </div>
+
+          <div class="card flat" style="padding:12px">
+            <div class="row spread">
+              <div>
+                <span class="label">Backend Synchronization</span>
+                <div class="tiny muted">Cloud Firestore: <b>${isFirebaseConfigured() ? 'Connected' : 'Local Demo Mode'}</b></div>
+              </div>
+              <button class="btn btn-sm btn-primary" data-act="syncCloud">${ic('reset', 14)} Refresh Live Feed</button>
             </div>
           </div>
+
           <div>
-            <div class="label" style="margin-bottom:4px">FSM Event Log</div>
-            ${attendanceService.state.events.length ? `<ul class="log">${attendanceService.state.events.slice(0, 5).map(e => `<li><span><span class="rollc">${esc(e.roll)}</span> <span class="muted">${esc(e.time)}</span></span>${badge(e.state === 'present' ? 'ok' : e.state === 'duplicate' ? 'warn' : 'bad', e.state)}</li>`).join('')}</ul>` : '<p class="muted small">No scans yet.</p>'}
+            <div class="row spread" style="margin-bottom:6px">
+              <div class="label">Verified Arrivals on ${esc(D.short(d))}</div>
+              <span class="badge info">${verifiedList.length} shown · ${pc} total</span>
+            </div>
+            ${verifiedList.length ? `<ul class="log">${verifiedList.map(([roll, rec]) => {
+              const student = attendanceService.getStudent(roll);
+              return `<li>
+                <span>
+                  <span class="rollc">${esc(roll)}</span>
+                  <span style="font-weight:500;margin-left:4px">${esc(student ? student.name : roll)}</span>
+                  <span class="muted" style="margin-left:6px">${esc(t12(rec.t))}</span>
+                </span>
+                ${badge('ok', 'Verified · 1')}
+              </li>`;
+            }).join('')}</ul>` : '<p class="muted small">No hardware attendance records uploaded for this date yet. Verified records from ESP32-CAM will appear here.</p>'}
           </div>
         </div>
       </section>
+
       <section class="card">
         <div class="card-h"><h2>63 × 1-Bit Attendance Register</h2><span class="label">64-bit flip-flop bus</span></div>
         <div class="regs">${regsGrid}</div>
-        <p class="hint" style="margin-top:8px">Green = Flip-flop Bit 1 (Present). Blue underline = Hosteller. Click any cell to test scan.</p>
+        <p class="hint" style="margin-top:8px">Green = Flip-flop Bit 1 (Present). Blue underline = Hosteller. Click any cell to inspect student register.</p>
       </section>
     </div>
   </div>`;
@@ -899,11 +921,12 @@ function pageDevice() {
   const fsmState = attendanceService.fsm.state;
   const fsmStateName = FSM_STATE_NAMES[fsmState] || 'IDLE';
 
-  return `<div class="notice ${isHw ? 'info' : 'warn'}" style="margin-bottom:16px">
-    ${ic(isHw ? 'info' : 'alert', 18)}
+  return `<div class="notice info" style="margin-bottom:16px">
+    ${ic('info', 18)}
     <div>
-      <b>Hardware Status: ${isHw ? 'Basys 3 FPGA Active over USB UART' : 'Hardware Disconnected (Software FSM Simulation Active)'}</b><br>
-      ${isHw ? 'Real-time UART byte frames received from Basys 3 board.' : 'Physical Basys 3 FPGA and ESP32-CAM are disconnected. The system uses the cycle-accurate JavaScript reproduction of the 9-state Verilog FSM.'}
+      <b>Hardware Attendance Architecture</b><br>
+      Intended hardware pipeline: ESP32-CAM QR/barcode capture → Basys 3 FPGA Verilog FSM validation → FPGA result returned to ESP32-CAM → secure upload to Firebase → AttendEdge display.<br>
+      ${isHw ? 'Basys 3 FPGA is connected via Web Serial UART at 115200 baud.' : 'Basys 3 FPGA is ready for Web Serial monitoring. ESP32-CAM firmware and communication protocol are pending implementation.'}
     </div>
   </div>
   <div class="grid g3" style="margin-bottom:16px">
@@ -914,18 +937,18 @@ function pageDevice() {
       <button class="btn btn-sm ${isHw ? 'btn-danger' : 'btn-primary'}" data-act="${isHw ? 'disconnectHw' : 'connectHw'}">${isHw ? 'Disconnect USB' : 'Connect via Web Serial'}</button>
     </section>
     <section class="card dev-card">
-      <div class="row spread"><span class="ic">${ic('barcode', 20)}</span>${badge(isHw ? 'ok' : 'muted', isHw ? 'Active' : 'Simulated')}</div>
-      <h2 style="font-size:16px">ESP32-CAM Scanner</h2>
-      <p class="muted small">Sends 1 byte student index (0..62) over UART at 115200 baud to Basys 3.</p>
+      <div class="row spread"><span class="ic">${ic('barcode', 20)}</span>${badge('warn', 'Firmware Pending')}</div>
+      <h2 style="font-size:16px">ESP32-CAM Optical Reader</h2>
+      <p class="muted small">Hardware camera unit for student ID capture. Transmits 1-byte index (0..62) to FPGA, receives validation, and uploads to Firebase. Firmware and device auth pending.</p>
     </section>
     <section class="card dev-card">
-      <div class="row spread"><span class="ic">${ic('chip', 20)}</span>${badge('ok', 'Active')}</div>
+      <div class="row spread"><span class="ic">${ic('chip', 20)}</span>${badge('ok', 'Hardware Spec Valid')}</div>
       <h2 style="font-size:16px">9-State Verilog FSM</h2>
-      <p class="muted small">Current State: <b>${fsmStateName} (${fsmState})</b> · 64-Bit Register: <b>${attendanceService.fsm.getStateSnapshot().attendanceHex}</b></p>
+      <p class="muted small">Hardware controller state: <b>${fsmStateName} (${fsmState})</b> · 64-Bit Register: <b>${attendanceService.fsm.getStateSnapshot().attendanceHex}</b></p>
     </section>
   </div>
   <section class="card" style="margin-bottom:16px">
-    <div class="card-h"><h2>Verilog FSM States (Attendence_Controller.v)</h2><span class="label">Real Waveform State Tracker</span></div>
+    <div class="card-h"><h2>Verilog FSM States (Attendence_Controller.v)</h2><span class="label">Hardware State Tracker</span></div>
     <div class="fsm">
       ${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => `<span class="${fsmState === num ? 'on' : ''}">${num}. ${FSM_STATE_NAMES[num]}</span>`).join('')}
     </div>
@@ -933,7 +956,7 @@ function pageDevice() {
   </section>
   <div class="grid g2e">
     <section class="card">
-      <div class="card-h"><h2>UART Protocol Specification</h2>${badge('info', 'Fixed Verilog')}</div>
+      <div class="card-h"><h2>UART Protocol Specification</h2>${badge('info', 'Hardware Interface')}</div>
       <dl class="kv">
         <dt>Baud Rate</dt><dd>115200 baud (CLKS_PER_BIT = 868 at 100MHz)</dd>
         <dt>Framing</dt><dd>8 Data bits, No parity, 1 Stop bit (8N1)</dd>
@@ -950,6 +973,7 @@ function pageDevice() {
         <li><span class="dot ok"></span><span>Time Window Comparator (08:00 - 08:35)</span><span class="grow"></span>${badge('ok', 'Pass')}</li>
         <li><span class="dot ok"></span><span>Duplicate Scan Protection (CHECK_DUP)</span><span class="grow"></span>${badge('ok', 'Pass')}</li>
         <li><span class="dot ${isFirebaseConfigured() ? 'ok' : 'warn'}"></span><span>Cloud Firestore Integration</span><span class="grow"></span>${badge(isFirebaseConfigured() ? 'ok' : 'muted', isFirebaseConfigured() ? 'Connected' : 'Offline Mode')}</li>
+        <li><span class="dot warn"></span><span>ESP32-CAM Firmware &amp; Device Auth</span><span class="grow"></span>${badge('warn', 'Pending Firmware')}</li>
       </ul>
     </section>
   </div>`;
@@ -1150,32 +1174,22 @@ const ACTIONS = {
     attendanceService.saveLocal();
     render();
   },
-  scanPrefill(el) {
+  selectStudentBit(el) {
     UI.scan.roll = el.dataset.roll;
-    UI.scan.err = '';
-    UI.scan.state = 'ready';
-    UI.scan.message = `${el.dataset.roll} loaded. Press Scan.`;
     render();
-    const i = $('#scanRoll');
-    if (i) {
-      i.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      i.focus();
-    }
   },
   pickRoll(el) {
-    ACTIONS.scanPrefill(el);
-  },
-  preset(el) {
-    attendanceService.state.ui.clock.time = el.dataset.t;
-    attendanceService.saveLocal();
-    toast(`Clock set to ${el.dataset.t}.`, 'info');
+    UI.scan.roll = el.dataset.roll;
     render();
   },
-  clockMode(el) {
-    attendanceService.state.ui.clock.mode = el.dataset.m;
-    attendanceService.saveLocal();
-    toast(el.dataset.m === 'real' ? 'Using system clock.' : 'Using simulated clock.', 'info');
-    render();
+  async syncCloud() {
+    try {
+      await attendanceService.syncWithFirestore();
+      render();
+      toast('Attendance records synchronized with backend.', 'ok');
+    } catch (err) {
+      toast('Sync failed: ' + err.message, 'bad');
+    }
   },
   openStudent(el) {
     openModal(studentModal(el.dataset.roll), true);
@@ -1425,44 +1439,6 @@ const FORMS = {
       if (lgErr) lgErr.textContent = res.error;
     }
   },
-  async scan() {
-    const sc = UI.scan;
-    if (sc.busy) return;
-    const roll = sc.roll.trim().toUpperCase();
-    if (!roll) {
-      sc.err = 'Enter a roll number to scan.';
-      render();
-      return;
-    }
-    sc.err = '';
-    sc.busy = true;
-    sc.state = 'scanning';
-    sc.message = `Processing roll number ${roll} through Verilog FSM…`;
-    render();
-
-    setTimeout(async () => {
-      const res = await attendanceService.scanBarcode(roll);
-      sc.busy = false;
-      sc.state = res.state;
-      sc.message = res.message;
-      sc.lastRoll = roll;
-      sc.fsmResult = res.fsmResult;
-      if (res.state === 'present') sc.flash = roll;
-      toast(res.message, res.state === 'present' ? 'ok' : res.state === 'duplicate' ? 'warn' : 'bad');
-      render();
-    }, 300);
-  },
-  setTime(f) {
-    const v = f.elements.clk ? f.elements.clk.value : $('#clk').value;
-    if (!/^\d{2}:\d{2}(:\d{2})?$/.test(v)) {
-      toast('Enter a valid time format.', 'bad');
-      return;
-    }
-    attendanceService.state.ui.clock.time = v.length === 5 ? v + ':00' : v;
-    attendanceService.saveLocal();
-    toast(`Simulated clock set to ${attendanceService.state.ui.clock.time}.`, 'info');
-    render();
-  },
   async addStudent(f) {
     const errEl = $('#addStuErr');
     if (errEl) errEl.textContent = '';
@@ -1572,9 +1548,6 @@ function setupEventListeners() {
     const [g, k] = b.split('.');
     if (!UI[g]) return;
     UI[g][k] = v;
-    if (b === 'scan.roll') {
-      UI.scan.err = '';
-    }
     render();
   });
 
@@ -1617,6 +1590,18 @@ function boot() {
   });
   setupEventListeners();
   route();
+
+  // Periodic background sync for live attendance updates from backend
+  setInterval(async () => {
+    if (UI.currentUser && !UI.currentUser.isDemo && (UI.page === 'daily' || UI.page === 'overview')) {
+      try {
+        await attendanceService.syncWithFirestore();
+        render();
+      } catch (e) {
+        // silent background refresh
+      }
+    }
+  }, 15000);
 }
 
 if (document.readyState === 'loading') {

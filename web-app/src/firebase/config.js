@@ -6,13 +6,13 @@ import { getFunctions } from 'firebase/functions';
 const env = import.meta.env;
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCBW34_fmgH68MYvGP9sTaNVi8-zkR9cPY",
-  authDomain: "attendedge-11745.firebaseapp.com",
-  projectId: "attendedge-11745",
-  storageBucket: "attendedge-11745.firebasestorage.app",
-  messagingSenderId: "625261477373",
-  appId: "1:625261477373:web:224185f98f3d28076e2d94",
-  measurementId: "G-4B5P89CE27"
+  apiKey: env?.VITE_FIREBASE_API_KEY || "AIzaSyCBW34_fmgH68MYvGP9sTaNVi8-zkR9cPY",
+  authDomain: env?.VITE_FIREBASE_AUTH_DOMAIN || "attendedge-11745.firebaseapp.com",
+  projectId: env?.VITE_FIREBASE_PROJECT_ID || "attendedge-11745",
+  storageBucket: env?.VITE_FIREBASE_STORAGE_BUCKET || "attendedge-11745.firebasestorage.app",
+  messagingSenderId: env?.VITE_FIREBASE_MESSAGING_SENDER_ID || "625261477373",
+  appId: env?.VITE_FIREBASE_APP_ID || "1:625261477373:web:224185f98f3d28076e2d94",
+  measurementId: env?.VITE_FIREBASE_MEASUREMENT_ID || "G-4B5P89CE27"
 };
 
 /**
