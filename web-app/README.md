@@ -53,9 +53,19 @@ c:/attadence/
     │   │   └── icons.js             # SVG UI icons
     │   ├── styles/
     │   │   └── main.css             # Preserved AttendEdge design system
-    │   └── main.js                  # Main UI routing & event management
+    │   └── main.js                  # Main UI routing, dashboard & Working Day Management
+    ├── netlify/
+    │   └── functions/
+    │       ├── manageDaySchedule.js # Serverless day schedule override & audit history
+    │       └── recordAttendance.js  # Serverless attendance verification
     ├── tests/
-    │   └── fsm.test.js              # Test suite matching tb_attendance_controller.v
+    │   ├── fsm.test.js              # Hardware FSM test suite matching Vivado testbench
+    │   ├── auth.test.js             # Authentication & role verification
+    │   ├── firestoreService.test.js # Firestore CRUD operations & schedule sync
+    │   ├── studentStatistics.test.js# Attendance statistics calculation
+    │   ├── workflow_and_reports.test.js # End-to-end report workflow
+    │   ├── cloudFunctionsSecurity.test.js # Cloud Functions security & window checks
+    │   └── workingDayManagement.test.js   # Faculty working day management & overrides
     ├── index.html
     ├── vite.config.js
     ├── firestore.rules
@@ -75,11 +85,11 @@ npm run dev
 ```
 Open your browser to: **`http://localhost:5173`**
 
-### Run Automated FSM Unit Tests
+### Run Automated Unit & Integration Tests
 ```bash
 npm test
 ```
-Executes all 11 test scenarios directly matching `tb_attendance_controller.v` and `tb_attendedge_top.v`.
+Executes all 111 test scenarios across 7 test suites via Vitest.
 
 ### Production Build
 ```bash

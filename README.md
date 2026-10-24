@@ -83,6 +83,7 @@ c:/attadence/
 ├── README.md                # Repository overview & setup guide
 ├── netlify/
 │   └── functions/
+│       ├── manageDaySchedule.js # Serverless day schedule override & audit history
 │       └── recordAttendance.js  # Serverless function bridge
 ├── esp_cam/                 # ESP32-CAM firmware workspace
 ├── vivado/                  # STRICTLY READ-ONLY Vivado hardware project
@@ -97,6 +98,7 @@ c:/attadence/
     ├── .env.example         # Example client environment variables
     ├── netlify/
     │   └── functions/
+    │       ├── manageDaySchedule.js # Atomic day schedule override management
     │       └── recordAttendance.js  # Atomic Firestore serverless verification
     ├── src/
     │   ├── logic/           # Attendance FSM definition, status codes & statistics engine
@@ -105,8 +107,8 @@ c:/attadence/
     │   ├── reports/         # PDF and CSV report export engine
     │   ├── components/      # UI icons & logo components
     │   ├── styles/          # AttendEdge responsive CSS design system
-    │   └── main.js          # Main UI routing, dashboard & event handling
-    └── tests/               # 88 Vitest unit, security, workflow & statistics tests
+    │   └── main.js          # Main UI routing, dashboard & Working Day Management
+    └── tests/               # 111 Vitest unit, security, workflow, statistics & schedule management tests
 ```
 
 ---
@@ -158,7 +160,7 @@ Open **`http://localhost:5173`** in your browser.
 ```bash
 npm test
 ```
-Executes all 88 unit, security, and transaction verification tests via Vitest.
+Executes all 111 unit, security, schedule override, and transaction verification tests via Vitest.
 
 ### Build Production Bundle
 ```bash

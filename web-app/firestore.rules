@@ -83,6 +83,25 @@ service cloud.firestore {
       allow update, delete: if false; // Append-only audit integrity
     }
     
+    // Day Schedule Overrides (Faculty-controlled working/non-working day status)
+    // Verified faculty can read overrides for weekly reports and attendance validation.
+    // DIRECT CLIENT WRITES ARE FORBIDDEN:
+    // Overrides must be applied exclusively through the secure manageDaySchedule Netlify function
+    // to enforce server-side Firebase ID token verification, faculty privilege checks, and audit logging.
+    match /dayScheduleOverrides/{dateId} {
+      allow read: if isFaculty();
+      allow write: if false;
+    }
+
+    // Schedule Audit History (Immutable institutional audit trail of day status modifications)
+    // Read: Verified faculty can inspect audit logs.
+    // DIRECT CLIENT WRITES ARE FORBIDDEN:
+    // Append-only history created solely by the trusted Netlify backend.
+    match /scheduleAuditHistory/{auditId} {
+      allow read: if isFaculty();
+      allow write: if false;
+    }
+
     // Default fallback: deny all other unmatched collections
     match /{document=**} {
       allow read, write: if false;

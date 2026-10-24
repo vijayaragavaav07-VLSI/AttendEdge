@@ -90,6 +90,61 @@ export function getAdminServices({ overrideDb = null, overrideAuth = null } = {}
 }
 
 /**
+ * Determine the effective schedule status for a given date in Asia/Kolkata:
+ * 1. Checks Firestore dayScheduleOverrides collection for an explicit faculty override.
+ * 2. If no override exists, evaluates the institutional default schedule (workingWeekdays, holidays).
+ */
+export async function getEffectiveDateSchedule(firestoreDb, dateStr, settings = {}) {
+  // 1. Check for faculty override in dayScheduleOverrides
+  try {
+    const overrideDoc = await firestoreDb.collection('dayScheduleOverrides').doc(dateStr).get();
+    if (overrideDoc && overrideDoc.exists) {
+      const data = overrideDoc.data() || {};
+      const statusStr = String(data.status || '').trim();
+      const isWorking = data.isWorking !== undefined
+        ? Boolean(data.isWorking)
+        : (statusStr.toLowerCase() === 'working' || statusStr.toLowerCase() === 'working day');
+      return {
+        date: dateStr,
+        isWorking,
+        status: isWorking ? 'Working Day' : 'Non-working Day',
+        isOverride: true,
+        reason: data.reason || (isWorking ? 'Faculty schedule override' : 'Emergency closure / Holiday override'),
+        updatedBy: data.updatedBy
+      };
+    }
+  } catch (err) {
+    // If collection read encounters an error or running with mock without collection, fall back
+  }
+
+  // 2. Default institutional schedule evaluation
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  const workingWeekdays = settings.workingWeekdays || [1, 2, 3, 4, 5];
+  const holidays = settings.holidays || [];
+  const holiday = holidays.find(h => h.date === dateStr);
+
+  if (holiday) {
+    return {
+      date: dateStr,
+      isWorking: false,
+      status: 'Non-working Day',
+      isOverride: false,
+      reason: `${holiday.label || 'Holiday'} (Institutional holiday)`
+    };
+  }
+
+  const isWorking = workingWeekdays.includes(dow);
+  return {
+    date: dateStr,
+    isWorking,
+    status: isWorking ? 'Working Day' : 'Non-working Day',
+    isOverride: false,
+    reason: isWorking ? 'Official institutional working day' : 'Weekend / Non-working day'
+  };
+}
+
+/**
  * Core attendance verification & atomic Firestore transaction.
  */
 export async function verifyAndRecordAttendance(firestoreDb, {
@@ -163,7 +218,17 @@ export async function verifyAndRecordAttendance(firestoreDb, {
   const todayDate = `${g('year')}-${g('month')}-${g('day')}`;
   const currentTime = `${g('hour')}:${g('minute')}:${g('second')}`;
 
-  // 4. Server-Side Attendance Time Window Check (08:00 - 08:35)
+  // 4. Server-Side Working Day Schedule Check (Faculty Override or Default Schedule)
+  const scheduleInfo = await getEffectiveDateSchedule(firestoreDb, todayDate, settings);
+  if (!scheduleInfo.isWorking) {
+    return {
+      success: false,
+      statusCode: STATUS_CODES.S_OUT_WINDOW,
+      message: `Non-working Day: Attendance rejected. Date ${todayDate} is designated as a Non-working Day (${scheduleInfo.reason}).`
+    };
+  }
+
+  // 5. Server-Side Attendance Time Window Check (08:00 - 08:35)
   const toSec = (timeStr) => {
     const [h, m, s] = (timeStr || '00:00:00').split(':').map(Number);
     return (h || 0) * 3600 + (m || 0) * 60 + (s || 0);

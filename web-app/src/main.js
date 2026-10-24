@@ -1,7 +1,7 @@
 import { attendanceService } from './services/attendanceService.js';
-import { getCurrentUser, signInFaculty, signOutFaculty, subscribeAuth, startDemoSession, sendFacultyPasswordReset } from './firebase/auth.js';
+import { getCurrentUser, signInFaculty, signOutFaculty, subscribeAuth, startDemoSession, sendFacultyPasswordReset, reauthenticateFaculty } from './firebase/auth.js';
 import { isFirebaseConfigured } from './firebase/config.js';
-import { getConnectionState, CONNECTION_STATES } from './firebase/firestoreService.js';
+import { getConnectionState, CONNECTION_STATES, FirestoreService } from './firebase/firestoreService.js';
 import { serialService } from './services/serialService.js';
 import { FSM_STATES, FSM_STATE_NAMES, STATUS_CODES } from './logic/attendanceFSM.js';
 import { D, toSec, hms, t12, pctText, exportCSV, exportPDF, printReport } from './reports/reportGenerator.js';
@@ -39,7 +39,7 @@ const UI = {
   tables: {},
   daily: { q: '', filter: 'all', size: 25, res: '', statFilter: 'all' },
   stu: { q: '', dept: '', cls: '', sem: '', res: '' },
-  weekly: { date: '', q: '', band: 'all', res: '' },
+  weekly: { date: '', q: '', band: 'all', res: '', manageDate: '', targetStatus: '', targetReason: '' },
   monthly: { y: 0, m: 0, q: '', band: 'all', student: '25EV001', res: '' },
   sem: { sem: '', ay: '', q: '', band: 'all', res: '' },
   pdf: { student: '25EV001', day: '', week: '', y: 0, m: 0, pDate: '', aDate: '', cy: 0, cm: 0 },
@@ -54,6 +54,7 @@ function initUIState() {
   const y = +t.slice(0, 4);
   const m = +t.slice(5, 7);
   UI.weekly.date = UI.pdf.day = UI.pdf.week = UI.pdf.pDate = UI.pdf.aDate = attendanceService.state.ui.selDate || t;
+  UI.weekly.manageDate = UI.weekly.date;
   UI.monthly.y = UI.pdf.y = UI.pdf.cy = y;
   UI.monthly.m = UI.pdf.m = UI.pdf.cm = m;
   UI.sem.sem = attendanceService.state.settings.semester;
@@ -148,7 +149,7 @@ function table(id, { cols, rows, size = 25, caption, rowCls, empty }) {
 }
 
 // Chart SVG Generator
-function chart({ type = 'bar', labels, values, max = 100, unit = '%', h = 200, label = 'Chart' }) {
+function chart({ type = 'bar', labels, values, meta = [], max = 100, unit = '%', h = 200, label = 'Chart' }) {
   if (!values.some(v => v !== null)) {
     return `<div class="empty"><b>No completed sessions in this period</b>Charts fill in once working days have finished.</div>`;
   }
@@ -165,7 +166,21 @@ function chart({ type = 'bar', labels, values, max = 100, unit = '%', h = 200, l
   if (type === 'bar') {
     const bw = Math.max(3, Math.min(34, (iw / n) * 0.62));
     values.forEach((v, i) => {
-      if (v === null) return;
+      const m = meta[i] || {};
+      if (v === null) {
+        const xCenter = cx(i);
+        if (m.isNonWorking) {
+          s += `<rect x="${(xCenter - bw / 2).toFixed(1)}" y="${(pt + ih - 14).toFixed(1)}" width="${bw.toFixed(1)}" height="12" rx="2" fill="#E6E1D8" opacity="0.65"><title>${esc(labels[i])}: Non-working Day (${esc(m.reason || 'Off')})</title></rect>`;
+          s += `<text class="c-axis" x="${xCenter.toFixed(1)}" y="${(pt + ih - 4).toFixed(1)}" font-size="8.5" text-anchor="middle" fill="#8C887B" font-weight="600">OFF</text>`;
+        } else if (m.isPending) {
+          s += `<rect x="${(xCenter - bw / 2).toFixed(1)}" y="${(pt + ih - 14).toFixed(1)}" width="${bw.toFixed(1)}" height="12" rx="2" fill="none" stroke="#C4BCAD" stroke-dasharray="2,2"><title>${esc(labels[i])}: Upcoming session (Pending)</title></rect>`;
+          s += `<text class="c-axis" x="${xCenter.toFixed(1)}" y="${(pt + ih - 4).toFixed(1)}" font-size="8.5" text-anchor="middle" fill="#8C887B">—</text>`;
+        } else if (m.isMissing) {
+          s += `<rect x="${(xCenter - bw / 2).toFixed(1)}" y="${(pt + ih - 14).toFixed(1)}" width="${bw.toFixed(1)}" height="12" rx="2" fill="#FCE8E6"><title>${esc(labels[i])}: No attendance data recorded</title></rect>`;
+          s += `<text class="c-axis" x="${xCenter.toFixed(1)}" y="${(pt + ih - 4).toFixed(1)}" font-size="8.5" text-anchor="middle" fill="#C43828">N/A</text>`;
+        }
+        return;
+      }
       const y = cy(v);
       s += `<rect class="c-bar${unit === '%' && v < attendanceService.state.settings.threshold ? ' low' : ''}" x="${(cx(i) - bw / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${(pt + ih - y).toFixed(1)}" rx="3"><title>${esc(labels[i])}: ${val(v)}</title></rect>`;
     });
@@ -287,6 +302,9 @@ const ReportsModel = {
   weeklyClass({ date }) {
     const ws = D.weekStart(date);
     const we = D.add(ws, 6);
+    const weekDays = D.range(ws, we);
+    const workingDays = weekDays.filter(d => attendanceService.isWorkingDay(d));
+    const nonWorkingDays = weekDays.filter(d => !attendanceService.isWorkingDay(d));
     const st = attendanceService.getClassStats(ws, we);
     const rows = attendanceService.state.students.map(s => {
       const x = st.map[s.rollNumber];
@@ -296,7 +314,11 @@ const ReportsModel = {
       file: `AttendEdge_weekly_class_${ws}`,
       title: 'Weekly Class Attendance Report',
       meta: meta(`${D.med(ws)} to ${D.med(we)}`),
-      summary: [['Working Days Counted', st.days.length]],
+      summary: [
+        ['Working Days in Week', workingDays.length],
+        ['Non-working Days in Week', nonWorkingDays.length],
+        ['Working Days Counted', st.days.length]
+      ],
       columns: ['Roll Number', 'Student Name', 'Residence', 'Working Days', 'Present', 'Absent', 'Attendance %'],
       rows
     };
@@ -866,32 +888,131 @@ function pageWeekly() {
   const w = UI.weekly;
   const ws = D.weekStart(w.date);
   const we = D.add(ws, 6);
-  const st = attendanceService.getClassStats(ws, we);
+  const weekDays = D.range(ws, we);
+  const today = attendanceService.getTodayString();
   const tot = attendanceService.state.students.length;
+  const st = attendanceService.getClassStats(ws, we);
   const sm = attendanceService.summarizeStats(st.map);
 
-  const rows = D.range(ws, we).map(d => {
-    const wk = attendanceService.isWorkingDay(d);
-    const done = attendanceService.isSessionCompleted(d);
+  // Manage date defaults to currently selected week date if unset or invalid
+  if (!w.manageDate || !D.valid(w.manageDate)) {
+    w.manageDate = w.date;
+  }
+  const manageDate = w.manageDate;
+  const manageInfo = attendanceService.getDayScheduleInfo(manageDate);
+
+  const rows = weekDays.map(d => {
+    const sched = attendanceService.getDayScheduleInfo(d);
+    const wk = sched.isWorking;
+    const isPast = d < today;
+    const isToday = d === today;
+    const isFuture = d > today;
+
     const p = attendanceService.getPresentCount(d);
+    const recordsOnDate = attendanceService.getRecordsOn(d);
+    const hasRecords = Boolean(recordsOnDate && Object.keys(recordsOnDate).length > 0);
+    const session = attendanceService.state.sessions[d];
+    const isSessionDone = attendanceService.isSessionCompleted(d);
+
+    let statusType = sched.status;
+    let badgeType = wk ? 'info' : 'muted';
+    let pDisplay = '—';
+    let aDisplay = '—';
+    let pct = null;
+    let note = '';
+
+    if (!wk) {
+      statusType = 'Non-working Day';
+      badgeType = 'muted';
+      note = sched.isOverride ? `Override: ${sched.reason}` : sched.reason;
+      pDisplay = '<span class="muted">—</span>';
+      aDisplay = '<span class="muted">—</span>';
+      pct = null;
+    } else if (isFuture) {
+      statusType = 'Working Day';
+      badgeType = 'info';
+      pDisplay = '<span class="badge warn">Pending</span>';
+      aDisplay = '<span class="muted">—</span>';
+      note = 'Upcoming working day';
+      pct = null;
+    } else if (isToday) {
+      statusType = 'Working Day';
+      badgeType = 'info';
+      if (hasRecords || isSessionDone) {
+        pDisplay = p;
+        aDisplay = tot - p;
+        pct = (p / tot) * 100;
+      } else {
+        pDisplay = '<span class="muted">— (Pending)</span>';
+        aDisplay = '<span class="muted">—</span>';
+        note = 'Scanning window pending';
+        pct = null;
+      }
+    } else {
+      // Past working day
+      statusType = 'Working Day';
+      badgeType = 'info';
+      if (hasRecords) {
+        pDisplay = p;
+        aDisplay = tot - p;
+        pct = (p / tot) * 100;
+      } else if (session && String(session.sessionStatus).toLowerCase() === 'closed') {
+        pDisplay = 0;
+        aDisplay = tot;
+        pct = 0.0;
+        note = 'Confirmed 0 attendance';
+      } else {
+        // Distinguish missing attendance data from confirmed zero-attendance day
+        pDisplay = '<span class="badge warn">Missing Data</span>';
+        aDisplay = '<span class="muted">—</span>';
+        note = 'No attendance recorded';
+        pct = null;
+      }
+    }
+
     return {
       date: d,
       wk,
-      done,
+      isPending: isFuture || (isToday && !hasRecords && !isSessionDone),
+      isMissing: isPast && wk && !hasRecords && !(session && String(session.sessionStatus).toLowerCase() === 'closed'),
       p,
-      a: tot - p,
-      pct: wk && done ? (p / tot) * 100 : null,
-      type: wk ? 'Working day' : 'Non-working'
+      pDisplay,
+      aDisplay,
+      pct,
+      statusType,
+      badgeType,
+      sched,
+      note
     };
   });
 
+  const workingDaysInWeek = rows.filter(r => r.wk).length;
+  const nonWorkingDaysInWeek = rows.filter(r => !r.wk).length;
+  const recordedDaysInWeek = rows.filter(r => r.wk && r.pct !== null).length;
+
+  const validPcts = rows.filter(r => r.wk && r.pct !== null).map(r => r.pct);
+  const weekClassAvg = validPcts.length ? validPcts.reduce((sum, v) => sum + v, 0) / validPcts.length : null;
+
   const cols = [
     { key: 'date', label: 'Date', html: r => D.short(r.date) },
-    { key: 'type', label: 'Day Type', html: r => (r.wk ? badge('info', 'Working Day') : badge('muted', r.type)) },
-    { key: 'p', label: 'Present', cls: 'num', html: r => (r.wk && r.done ? r.p : '—') },
-    { key: 'a', label: 'Absent', cls: 'num', html: r => (r.wk && r.done ? r.a : '—') },
-    { key: 'pct', label: 'Attendance %', html: r => (r.pct === null ? '—' : bar(r.pct)) }
+    {
+      key: 'type',
+      label: 'Day Status',
+      html: r => `<div>${badge(r.badgeType, r.statusType)}${r.sched.isOverride ? ' <span class="badge warn" style="font-size:10px;margin-left:4px" title="Reason: ' + esc(r.sched.reason) + '">Override</span>' : ''}</div>`
+    },
+    { key: 'p', label: 'Present', cls: 'num', html: r => r.pDisplay },
+    { key: 'a', label: 'Absent', cls: 'num', html: r => r.aDisplay },
+    {
+      key: 'pct',
+      label: 'Attendance %',
+      html: r => (!r.wk ? '<span class="muted small">Non-working</span>' : r.pct === null ? '<span class="muted small">—</span>' : bar(r.pct))
+    }
   ];
+
+  // Faculty Working Day Management Controls
+  const targetStatus = w.targetStatus || (manageInfo.isWorking ? 'Non-working Day' : 'Working Day');
+  const targetReason = w.targetReason || '';
+  const isFacultyUser = Boolean(UI.currentUser && UI.currentUser.role === 'faculty');
 
   return `<section class="card" style="margin-bottom:16px">
     <div class="toolbar">
@@ -902,14 +1023,92 @@ function pageWeekly() {
       <button class="btn btn-primary" data-act="report" data-mode="pdf" data-r="weeklyClass" data-args='${esc(JSON.stringify({ date: w.date }))}'>${ic('pdf', 16)} Export PDF</button>
     </div>
   </section>
-  <div class="grid g3" style="margin-bottom:16px">
+
+  <!-- Working Day Management Section -->
+  <section class="card" style="margin-bottom:16px" id="sec-working-day-mgmt">
+    <div class="card-h" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <div>
+        <h2 style="margin:0 0 4px 0">Working Day Management</h2>
+        <span class="label">Faculty-controlled schedule override & emergency status adjustments</span>
+      </div>
+      <div>
+        <button class="btn btn-sm" data-act="viewScheduleAudit" title="View historical schedule changes">${ic('clock', 14)} Audit History</button>
+      </div>
+    </div>
+    <div style="background:var(--bg);padding:14px;border-radius:10px;margin-top:12px;border:1px solid var(--line)">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));gap:14px;align-items:start">
+        <div class="field">
+          <label for="mgmtDate"><b>Select Date to Manage</b></label>
+          <input id="mgmtDate" class="input" type="date" value="${manageDate}" data-act="changeMgmtDate" style="background:#fff">
+          <div style="margin-top:8px;font-size:13px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <span class="muted">Currently Assigned:</span>
+            <b>${badge(manageInfo.isWorking ? 'ok' : 'muted', manageInfo.status)}</b>
+            ${manageInfo.isOverride ? `<span class="badge warn" style="font-size:11px">Overridden</span>` : `<span class="badge info" style="font-size:11px">Default Timetable</span>`}
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-top:5px;line-height:1.4">
+            ${manageInfo.isOverride ? `Reason: <b>${esc(manageInfo.reason)}</b> · <span class="small">${esc(manageInfo.updatedBy || '')}</span>` : esc(manageInfo.reason)}
+          </div>
+        </div>
+
+        <div class="field">
+          <label><b>Choose New Day Status</b></label>
+          <div style="display:flex;gap:8px;margin-top:2px">
+            <button type="button" class="btn ${targetStatus === 'Working Day' ? 'btn-primary' : ''}" data-act="setSchedTarget" data-status="Working Day" style="flex:1">
+              ${ic('check', 16)} Working Day
+            </button>
+            <button type="button" class="btn ${targetStatus === 'Non-working Day' ? 'btn-danger-solid' : ''}" data-act="setSchedTarget" data-status="Non-working Day" style="flex:1">
+              ${ic('cross', 16)} Non-working Day
+            </button>
+          </div>
+          <div style="margin-top:10px">
+            <label for="mgmtReason" style="font-size:12px;font-weight:600">Reason for Change <span style="color:var(--bad)">*</span></label>
+            <input id="mgmtReason" class="input" style="background:#fff" placeholder="e.g. Emergency holiday, Special working day..." value="${esc(targetReason)}" data-bind="weekly.targetReason">
+            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">
+              <button type="button" class="btn btn-sm" style="font-size:11px;padding:3px 7px" data-act="quickSchedReason" data-r="Emergency holiday">Emergency holiday</button>
+              <button type="button" class="btn btn-sm" style="font-size:11px;padding:3px 7px" data-act="quickSchedReason" data-r="College event">College event</button>
+              <button type="button" class="btn btn-sm" style="font-size:11px;padding:3px 7px" data-act="quickSchedReason" data-r="Special working day">Special working day</button>
+              <button type="button" class="btn btn-sm" style="font-size:11px;padding:3px 7px" data-act="quickSchedReason" data-r="Institutional announcement">Institutional announcement</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;padding-top:12px;border-top:1px solid var(--line);flex-wrap:wrap;gap:8px">
+        <div>
+          ${manageInfo.isOverride ? `<button type="button" class="btn btn-sm btn-danger" data-act="promptResetOverride" data-date="${manageDate}">Reset to Institutional Default</button>` : `<span class="muted" style="font-size:12px">Default institutional timetable active for this date.</span>`}
+        </div>
+        <div>
+          <button type="button" class="btn btn-primary" data-act="openScheduleConfirmModal" ${!isFacultyUser ? 'title="Faculty sign-in required"' : ''}>
+            ${ic('save', 16)} Save Changes
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Week Schedule Summary KPIs -->
+  <div class="grid g4" style="margin-bottom:16px">
     <div class="card kpi"><div class="label">Working Days Counted</div><div class="v c-primary">${st.days.length}</div></div>
-    <div class="card kpi"><div class="label">Class Average</div><div class="v c-ok">${pctText(sm.avg)}</div></div>
-    <div class="card kpi"><div class="label">Below Target (${attendanceService.state.settings.threshold}%)</div><div class="v c-warn">${sm.below}</div></div>
+    <div class="card kpi"><div class="label">Non-working Days</div><div class="v muted">${nonWorkingDaysInWeek}</div></div>
+    <div class="card kpi"><div class="label">Attendance-Recorded Days</div><div class="v c-ok">${recordedDaysInWeek}</div></div>
+    <div class="card kpi"><div class="label">Class Weekly Average</div><div class="v c-ok">${pctText(weekClassAvg)}</div></div>
   </div>
+
   <div class="grid g2e" style="margin-bottom:16px">
-    <section class="card"><div class="card-h"><h2>Daily Totals</h2></div>${table('wk-days', { cols, rows, size: 0, caption: 'Daily totals' })}</section>
-    <section class="card"><div class="card-h"><h2>Weekly Trend</h2></div>${chart({ type: 'bar', labels: rows.map(r => D.short(r.date)), values: rows.map(r => r.pct), label: 'Weekly trend' })}</section>
+    <section class="card">
+      <div class="card-h"><h2>Daily Totals</h2></div>
+      ${table('wk-days', { cols, rows, size: 0, caption: 'Daily totals' })}
+    </section>
+    <section class="card">
+      <div class="card-h"><h2>Weekly Trend</h2><span class="label">Attendance % per working day</span></div>
+      ${chart({
+        type: 'bar',
+        labels: rows.map(r => D.short(r.date)),
+        values: rows.map(r => r.pct),
+        meta: rows.map(r => ({ isNonWorking: !r.wk, isPending: r.isPending, isMissing: r.isMissing, reason: r.sched.reason })),
+        label: 'Weekly trend'
+      })}
+    </section>
   </div>`;
 }
 
@@ -1511,11 +1710,242 @@ const ACTIONS = {
     } catch (err) {
       toast(`Failed to delete student: ${err.message}`, 'bad');
     }
+  },
+  changeMgmtDate(el) {
+    const v = el.value;
+    if (D.valid(v)) {
+      UI.weekly.manageDate = v;
+      UI.weekly.targetStatus = '';
+      UI.weekly.targetReason = '';
+      render();
+    }
+  },
+  setSchedTarget(el) {
+    UI.weekly.targetStatus = el.dataset.status;
+    render();
+  },
+  quickSchedReason(el) {
+    UI.weekly.targetReason = el.dataset.r;
+    const inp = $('#mgmtReason');
+    if (inp) inp.value = el.dataset.r;
+  },
+  openScheduleConfirmModal() {
+    if (!UI.currentUser || UI.currentUser.role !== 'faculty') {
+      toast('Access Denied: Only authenticated faculty can modify working day schedule.', 'bad');
+      return;
+    }
+
+    const manageDate = UI.weekly.manageDate || UI.weekly.date;
+    const manageInfo = attendanceService.getDayScheduleInfo(manageDate);
+    const targetStatus = UI.weekly.targetStatus || (manageInfo.isWorking ? 'Non-working Day' : 'Working Day');
+    const reasonInput = $('#mgmtReason');
+    const reason = (reasonInput ? reasonInput.value : UI.weekly.targetReason || '').trim();
+
+    if (!reason || reason.length < 2) {
+      toast('Please enter a specific reason for this schedule override.', 'warn');
+      if (reasonInput) reasonInput.focus();
+      return;
+    }
+
+    openModal(`
+      <h2>Confirm Working Day Override</h2>
+      <p class="muted">You are requesting an authorized institutional schedule override for <b>${esc(D.long(manageDate))}</b>.</p>
+      <div style="background:var(--bg);padding:12px;border-radius:8px;border:1px solid var(--line);margin:12px 0;font-size:13.5px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+          <span class="muted">Selected Date:</span>
+          <b>${esc(D.med(manageDate))} (${esc(manageDate)})</b>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+          <span class="muted">Previous Status:</span>
+          <b>${badge(manageInfo.isWorking ? 'ok' : 'muted', manageInfo.status)}</b>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+          <span class="muted">New Effective Status:</span>
+          <b>${badge(targetStatus === 'Working Day' ? 'ok' : 'muted', targetStatus)}</b>
+        </div>
+        <div style="display:flex;justify-content:space-between">
+          <span class="muted">Provided Reason:</span>
+          <b>${esc(reason)}</b>
+        </div>
+      </div>
+
+      <div class="alert" style="background:var(--warn-soft);color:#6C4B00;border:1px solid #EBD0A4;padding:8px 12px;border-radius:8px;font-size:12.5px;margin-bottom:14px">
+        ${targetStatus === 'Non-working Day'
+          ? '⚠️ Changing this date to Non-working Day will cause new attendance scans on this date to be rejected.'
+          : '✅ Changing this date to Working Day will permit attendance scanning during the 08:00–08:35 window.'}
+      </div>
+
+      <form data-form="confirmScheduleChange" class="stack">
+        <input type="hidden" name="date" value="${esc(manageDate)}">
+        <input type="hidden" name="status" value="${esc(targetStatus)}">
+        <input type="hidden" name="reason" value="${esc(reason)}">
+        <div class="field">
+          <label for="confFacultyPass"><b>Re-enter Faculty Account Password</b> <span style="color:var(--bad)">*</span></label>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input id="confFacultyPass" name="facultyPassword" type="password" class="input" placeholder="Current faculty account password" required autocomplete="current-password" style="flex:1">
+            <button type="button" class="icon-btn" data-act="toggleConfPassword" title="Show/Hide Password">${ic('eye', 18)}</button>
+          </div>
+          <div class="hint muted" style="font-size:11.5px;margin-top:4px">Identity re-authentication is strictly enforced before schedule overrides can be saved.</div>
+        </div>
+        <div id="confSchedErr" class="err" style="color:var(--bad);font-size:13px" role="alert"></div>
+        <div class="dlg-actions">
+          <button type="button" class="btn" data-act="dlgCancel">Cancel</button>
+          <button id="btnSubmitSchedChange" class="btn btn-primary" type="submit">${ic('save', 16)} Verify Password & Apply</button>
+        </div>
+      </form>
+    `);
+  },
+  toggleConfPassword(el) {
+    const inp = $('#confFacultyPass') || $('#confResetPass');
+    if (!inp) return;
+    const show = inp.type === 'password';
+    inp.type = show ? 'text' : 'password';
+    el.innerHTML = ic(show ? 'eyeoff' : 'eye', 18);
+  },
+  promptResetOverride(el) {
+    const date = el.dataset.date;
+    openModal(`
+      <h2>Reset Day Schedule to Default</h2>
+      <p class="muted">Are you sure you want to remove the faculty schedule override for <b>${esc(D.long(date))}</b> and revert to the institutional default timetable?</p>
+      <form data-form="confirmResetSchedule" class="stack" style="margin-top:14px">
+        <input type="hidden" name="date" value="${esc(date)}">
+        <div class="field">
+          <label for="confResetPass"><b>Re-enter Faculty Password</b> <span style="color:var(--bad)">*</span></label>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input id="confResetPass" name="facultyPassword" type="password" class="input" placeholder="Faculty password" required autocomplete="current-password" style="flex:1">
+            <button type="button" class="icon-btn" data-act="toggleConfPassword" title="Show/Hide Password">${ic('eye', 18)}</button>
+          </div>
+        </div>
+        <div id="confResetErr" class="err" style="color:var(--bad);font-size:13px" role="alert"></div>
+        <div class="dlg-actions">
+          <button type="button" class="btn" data-act="dlgCancel">Cancel</button>
+          <button class="btn btn-danger-solid" type="submit">Revert to Default Timetable</button>
+        </div>
+      </form>
+    `);
+  },
+  async viewScheduleAudit() {
+    let history = [];
+    if (isCloudSyncReady()) {
+      try {
+        history = await FirestoreService.getScheduleAuditHistory(30);
+      } catch (e) {
+        history = attendanceService.getScheduleAuditHistory();
+      }
+    } else {
+      history = attendanceService.getScheduleAuditHistory();
+    }
+
+    const rows = history && history.length ? history.map(h => `
+      <tr>
+        <td><b>${esc(h.date)}</b><div class="muted small">${D.dayName(h.date)}</div></td>
+        <td>${badge(h.isWorking ? 'ok' : 'muted', h.status || 'Override')}</td>
+        <td>${esc(h.reason || '—')}</td>
+        <td>${esc(h.updatedBy || 'Faculty')}</td>
+        <td class="small muted">${h.timestamp ? new Date(h.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '—'}</td>
+      </tr>
+    `).join('') : `<tr><td colspan="5" class="empty">No schedule override modifications recorded yet.</td></tr>`;
+
+    openModal(`
+      <h2>Schedule Modification Audit History</h2>
+      <p class="muted">Read-only institutional audit trail of all faculty-authorized working day and non-working day overrides.</p>
+      <div class="tbl-wrap" style="max-height:360px;overflow-y:auto;margin:14px 0">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Effective Status</th>
+              <th>Reason Provided</th>
+              <th>Authorized By</th>
+              <th>Recorded (IST)</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <div class="dlg-actions">
+        <button class="btn btn-primary" data-act="dlgCancel">Close</button>
+      </div>
+    `, true);
   }
 };
 
 // Form Handlers
 const FORMS = {
+  async confirmScheduleChange(f) {
+    const date = f.elements.date.value;
+    const status = f.elements.status.value;
+    const reason = f.elements.reason.value;
+    const pass = f.elements.facultyPassword.value;
+    const errEl = $('#confSchedErr');
+    const submitBtn = $('#btnSubmitSchedChange');
+
+    if (errEl) errEl.textContent = '';
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Verifying Password...'; }
+
+    // 1. Faculty Re-authentication
+    const authRes = await reauthenticateFaculty(pass);
+    f.elements.facultyPassword.value = ''; // Never retain password
+
+    if (!authRes.success) {
+      if (errEl) errEl.textContent = authRes.error;
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.innerHTML = `${ic('save', 16)} Verify Password & Apply`; }
+      toast(`Re-authentication failed: ${authRes.error}`, 'bad');
+      return;
+    }
+
+    // 2. Persist to Backend / Local State
+    try {
+      if (isCloudSyncReady()) {
+        submitBtn.textContent = 'Saving to Firestore...';
+        await FirestoreService.saveDayScheduleOverride({ date, status, reason });
+      }
+      attendanceService.setScheduleOverride(date, {
+        status,
+        reason,
+        updatedBy: UI.currentUser.email || UI.currentUser.displayName || 'Faculty',
+        updatedAt: new Date().toISOString()
+      });
+
+      closeModal();
+      UI.weekly.targetReason = '';
+      render();
+      toast(`Schedule override saved: ${date} is now marked as ${status}.`, 'ok');
+    } catch (err) {
+      if (errEl) errEl.textContent = err.message;
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.innerHTML = `${ic('save', 16)} Verify Password & Apply`; }
+      toast(`Failed to save schedule change: ${err.message}`, 'bad');
+    }
+  },
+  async confirmResetSchedule(f) {
+    const date = f.elements.date.value;
+    const pass = f.elements.facultyPassword.value;
+    const errEl = $('#confResetErr');
+
+    if (errEl) errEl.textContent = '';
+
+    const authRes = await reauthenticateFaculty(pass);
+    f.elements.facultyPassword.value = '';
+
+    if (!authRes.success) {
+      if (errEl) errEl.textContent = authRes.error;
+      toast(`Re-authentication failed: ${authRes.error}`, 'bad');
+      return;
+    }
+
+    try {
+      if (isCloudSyncReady()) {
+        await FirestoreService.resetDayScheduleOverride(date, 'Reverted to default timetable');
+      }
+      attendanceService.removeScheduleOverride(date, 'Reverted to default timetable', UI.currentUser.email || 'Faculty');
+      closeModal();
+      render();
+      toast(`Schedule for ${date} reverted to default institutional timetable.`, 'info');
+    } catch (err) {
+      if (errEl) errEl.textContent = err.message;
+      toast(`Failed to reset schedule: ${err.message}`, 'bad');
+    }
+  },
   async resetPw(f) {
     const email = f.elements.email.value.trim();
     const errEl = $('#resetErr');

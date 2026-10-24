@@ -156,6 +156,8 @@ export class AttendanceService {
           s.placeholder = true;
         }
       });
+      if (!saved.scheduleOverrides) saved.scheduleOverrides = {};
+      if (!saved.scheduleAuditHistory) saved.scheduleAuditHistory = [];
       this.state = saved;
     } else {
       const settings = this.createDefaultSettings();
@@ -166,6 +168,8 @@ export class AttendanceService {
         students,
         sessions: {},
         records: {},
+        scheduleOverrides: {},
+        scheduleAuditHistory: [],
         events: [],
         ui: {
           selDate: this.getTodayString(),
@@ -226,6 +230,12 @@ export class AttendanceService {
         this.syncFsmWithRecords(today);
       }
 
+      // Sync faculty day schedule overrides
+      const remoteOverrides = await FirestoreService.getDayScheduleOverrides();
+      if (remoteOverrides && typeof remoteOverrides === 'object') {
+        this.state.scheduleOverrides = Object.assign(this.state.scheduleOverrides || {}, remoteOverrides);
+      }
+
       this.saveLocal();
     } catch (e) {
       console.warn('[AttendEdge] Firestore initial sync skipped/failed:', e.message);
@@ -279,10 +289,52 @@ export class AttendanceService {
     });
   }
 
-  isWorkingDay(date) {
+  getDayScheduleInfo(date) {
+    // 1. Faculty schedule override takes precedence
+    const override = this.state.scheduleOverrides && this.state.scheduleOverrides[date];
+    if (override && override.status) {
+      const isWorking = override.isWorking !== undefined
+        ? Boolean(override.isWorking)
+        : (!String(override.status).toLowerCase().includes('non'));
+      return {
+        date,
+        isWorking,
+        status: isWorking ? 'Working Day' : 'Non-working Day',
+        isOverride: true,
+        reason: override.reason || (isWorking ? 'Faculty schedule override' : 'Emergency holiday / closure override'),
+        updatedBy: override.updatedBy,
+        updatedAt: override.updatedAt
+      };
+    }
+
+    // 2. Default institutional timetable
     const dow = D.dow(date);
-    const isHoliday = this.state.settings.holidays.some(h => h.date === date);
-    return this.state.settings.workingWeekdays.includes(dow) && !isHoliday;
+    const workingWeekdays = this.state.settings.workingWeekdays || [1, 2, 3, 4, 5];
+    const holidays = this.state.settings.holidays || [];
+    const holiday = holidays.find(h => h.date === date);
+
+    if (holiday) {
+      return {
+        date,
+        isWorking: false,
+        status: 'Non-working Day',
+        isOverride: false,
+        reason: `${holiday.label} (holiday)`
+      };
+    }
+
+    const isWorking = workingWeekdays.includes(dow);
+    return {
+      date,
+      isWorking,
+      status: isWorking ? 'Working Day' : 'Non-working Day',
+      isOverride: false,
+      reason: isWorking ? 'Regular timetable working day' : `${D.dayName(date)} is not an official working day`
+    };
+  }
+
+  isWorkingDay(date) {
+    return this.getDayScheduleInfo(date).isWorking;
   }
 
   getSessionInfo(date) {
@@ -303,11 +355,11 @@ export class AttendanceService {
     }
 
     if (!this.isWorkingDay(date)) {
-      const holiday = this.state.settings.holidays.find(h => h.date === date);
+      const sched = this.getDayScheduleInfo(date);
       return {
         key: 'nonworking',
         label: 'No session',
-        reason: holiday ? `${holiday.label} (holiday)` : `${D.dayName(date)} is not an official working day`,
+        reason: sched.reason,
         times
       };
     }
@@ -355,8 +407,62 @@ export class AttendanceService {
     const sessionDoc = this.state.sessions && this.state.sessions[clock.date];
     const isManuallyClosed = sessionDoc && sessionDoc.sessionStatus && String(sessionDoc.sessionStatus).toLowerCase() === 'closed';
 
-    if (isManuallyClosed || sessionInfo.key === 'closed') {
-      const reason = isManuallyClosed ? 'Session closed by faculty' : (sessionInfo.reason || 'Session closed');
+    if (isManuallyClosed) {
+      const reason = 'Session closed by faculty';
+      const msg = `Session Closed: Attendance session for ${clock.date} is closed (${reason}). New scans cannot be recorded.`;
+      const event = {
+        id: 'evt-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+        date: clock.date,
+        time: clock.time,
+        roll: raw || '-',
+        state: 'closed',
+        statusCode: STATUS_CODES.S_OUT_WINDOW,
+        message: msg,
+        isHardware: serialService.status === 'connected'
+      };
+      this.state.events.unshift(event);
+      if (this.state.events.length > 100) this.state.events.pop();
+      this.saveLocal();
+      return {
+        roll: raw,
+        student: stu,
+        state: 'closed',
+        statusCode: STATUS_CODES.S_OUT_WINDOW,
+        message: msg,
+        error: 'SESSION_CLOSED'
+      };
+    }
+
+    // Check for explicit faculty non-working day override or holiday
+    const sched = this.getDayScheduleInfo(clock.date);
+    if ((sched.isOverride && !sched.isWorking) || this.state.settings.holidays?.some(h => h.date === clock.date)) {
+      const reason = sched.reason || 'Non-working day';
+      const msg = `Non-working Day: Attendance rejected for ${clock.date} (${reason}). Attendance is accepted only on working days.`;
+      const event = {
+        id: 'evt-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+        date: clock.date,
+        time: clock.time,
+        roll: raw || '-',
+        state: 'closed',
+        statusCode: STATUS_CODES.S_OUT_WINDOW,
+        message: msg,
+        isHardware: serialService.status === 'connected'
+      };
+      this.state.events.unshift(event);
+      if (this.state.events.length > 100) this.state.events.pop();
+      this.saveLocal();
+      return {
+        roll: raw,
+        student: stu,
+        state: 'closed',
+        statusCode: STATUS_CODES.S_OUT_WINDOW,
+        message: msg,
+        error: 'NON_WORKING_DAY'
+      };
+    }
+
+    if (sessionInfo.key === 'closed') {
+      const reason = sessionInfo.reason || 'Session closed';
       const msg = `Session Closed: Attendance session for ${clock.date} is closed (${reason}). New scans cannot be recorded.`;
       const event = {
         id: 'evt-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
@@ -646,6 +752,67 @@ export class AttendanceService {
 
     this.saveLocal();
     return { ok: true, removed: count };
+  }
+
+  setScheduleOverride(date, { status, reason, updatedBy, updatedAt }) {
+    const cleanDate = String(date).trim();
+    const isWorking = !String(status).toLowerCase().includes('non');
+    const normalizedStatus = isWorking ? 'Working Day' : 'Non-working Day';
+    this.state.scheduleOverrides = this.state.scheduleOverrides || {};
+    const override = {
+      date: cleanDate,
+      status: normalizedStatus,
+      isWorking,
+      reason: (reason || '').trim(),
+      updatedBy: updatedBy || 'Faculty',
+      updatedAt: updatedAt || new Date().toISOString()
+    };
+    this.state.scheduleOverrides[cleanDate] = override;
+
+    this.state.scheduleAuditHistory = this.state.scheduleAuditHistory || [];
+    this.state.scheduleAuditHistory.unshift({
+      id: `audit-${cleanDate}-${Date.now()}`,
+      date: cleanDate,
+      status: normalizedStatus,
+      isWorking,
+      reason: (reason || '').trim(),
+      updatedBy: updatedBy || 'Faculty',
+      timestamp: updatedAt || new Date().toISOString(),
+      action: 'OVERRIDE_DAY_STATUS'
+    });
+
+    this.saveLocal();
+    return override;
+  }
+
+  removeScheduleOverride(date, reason = 'Reset to default timetable', updatedBy = 'Faculty') {
+    const cleanDate = String(date).trim();
+    if (this.state.scheduleOverrides && this.state.scheduleOverrides[cleanDate]) {
+      const prev = this.state.scheduleOverrides[cleanDate].status;
+      delete this.state.scheduleOverrides[cleanDate];
+      this.state.scheduleAuditHistory = this.state.scheduleAuditHistory || [];
+      this.state.scheduleAuditHistory.unshift({
+        id: `audit-${cleanDate}-${Date.now()}`,
+        date: cleanDate,
+        status: 'Default Timetable',
+        previousStatus: prev,
+        reason,
+        updatedBy,
+        timestamp: new Date().toISOString(),
+        action: 'RESET_TO_DEFAULT'
+      });
+      this.saveLocal();
+      return true;
+    }
+    return false;
+  }
+
+  getScheduleOverrides() {
+    return this.state.scheduleOverrides || {};
+  }
+
+  getScheduleAuditHistory() {
+    return this.state.scheduleAuditHistory || [];
   }
 
   resetAllData() {

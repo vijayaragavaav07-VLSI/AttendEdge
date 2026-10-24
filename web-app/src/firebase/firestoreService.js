@@ -737,5 +737,135 @@ export const FirestoreService = {
       console.error('[AttendEdge] getEvents error:', err);
       return [];
     }
+  },
+
+  /**
+   * Day Schedule Overrides Management (Faculty Privileges)
+   */
+  async getDayScheduleOverrides() {
+    if (!isCloudSyncReady()) return {};
+    try {
+      const snap = await getDocs(collection(db, 'dayScheduleOverrides'));
+      const overrides = {};
+      snap.forEach(d => {
+        overrides[d.id] = { id: d.id, ...d.data() };
+      });
+      clearConnectionError();
+      return overrides;
+    } catch (err) {
+      console.warn('[AttendEdge] getDayScheduleOverrides error:', err);
+      return {};
+    }
+  },
+
+  async saveDayScheduleOverride({ date, status, reason }) {
+    if (!isCloudSyncReady()) {
+      const err = new Error('Cannot save schedule override: Firebase is not authenticated.');
+      err.code = 'unauthenticated';
+      throw err;
+    }
+
+    try {
+      const currentUser = auth?.currentUser;
+      if (!currentUser) {
+        const err = new Error('Cannot save schedule override: User session expired or not authenticated.');
+        err.code = 'unauthenticated';
+        throw err;
+      }
+
+      const idToken = await currentUser.getIdToken();
+      const endpoint = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SCHEDULE_API_URL) || '/api/manageDaySchedule';
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify({ date, status, reason })
+      });
+
+      let data = null;
+      try {
+        data = await response.json();
+      } catch (jsonErr) {}
+
+      if (!response.ok || !data || data.success !== true) {
+        const errorMsg = (data && data.message) || `Schedule update rejected by server (${response.status}: ${response.statusText}).`;
+        const err = new Error(errorMsg);
+        err.code = (data && data.code) || 'functions/internal';
+        throw err;
+      }
+
+      clearConnectionError();
+      return data;
+    } catch (err) {
+      console.error('[AttendEdge] saveDayScheduleOverride error:', err);
+      throw err;
+    }
+  },
+
+  async resetDayScheduleOverride(date, reason = 'Reset to default timetable') {
+    if (!isCloudSyncReady()) {
+      const err = new Error('Cannot reset schedule override: Firebase is not authenticated.');
+      err.code = 'unauthenticated';
+      throw err;
+    }
+
+    try {
+      const currentUser = auth?.currentUser;
+      if (!currentUser) {
+        const err = new Error('Cannot reset schedule override: User session expired.');
+        err.code = 'unauthenticated';
+        throw err;
+      }
+
+      const idToken = await currentUser.getIdToken();
+      const endpoint = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SCHEDULE_API_URL) || '/api/manageDaySchedule';
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify({ date, action: 'resetOverride', reason })
+      });
+
+      let data = null;
+      try {
+        data = await response.json();
+      } catch (jsonErr) {}
+
+      if (!response.ok || !data || data.success !== true) {
+        const errorMsg = (data && data.message) || `Reset rejected by server (${response.status}: ${response.statusText}).`;
+        const err = new Error(errorMsg);
+        err.code = (data && data.code) || 'functions/internal';
+        throw err;
+      }
+
+      clearConnectionError();
+      return data;
+    } catch (err) {
+      console.error('[AttendEdge] resetDayScheduleOverride error:', err);
+      throw err;
+    }
+  },
+
+  async getScheduleAuditHistory(limitCount = 30) {
+    if (!isCloudSyncReady()) return [];
+    try {
+      const q = query(
+        collection(db, 'scheduleAuditHistory'),
+        orderBy('timestamp', 'desc'),
+        limit(limitCount)
+      );
+      const snap = await getDocs(q);
+      clearConnectionError();
+      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch (err) {
+      console.warn('[AttendEdge] getScheduleAuditHistory error:', err);
+      return [];
+    }
   }
 };

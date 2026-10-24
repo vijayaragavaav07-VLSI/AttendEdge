@@ -4,7 +4,9 @@ import {
   onAuthStateChanged,
   sendPasswordResetEmail,
   setPersistence,
-  browserLocalPersistence
+  browserLocalPersistence,
+  EmailAuthProvider,
+  reauthenticateWithCredential
 } from 'firebase/auth';
 import { auth, isFirebaseConfigured } from './config.js';
 
@@ -125,6 +127,59 @@ export function startDemoSession() {
     window.__attendedgeAuth = user;
   }
   return { success: true, user };
+}
+
+/**
+ * Re-authenticates the current faculty member before executing sensitive actions (e.g. Schedule Overrides).
+ * Enforces Firebase Authentication's reauthenticateWithCredential using the current user's email and password.
+ * In demo mode, verifies against the active demo credentials.
+ * NEVER stores, caches, or logs the entered password.
+ */
+export async function reauthenticateFaculty(password) {
+  const cleanPass = String(password || '');
+  if (!cleanPass) {
+    return { success: false, error: 'Password is required to confirm schedule changes.' };
+  }
+
+  // 1. Production Mode: Firebase Auth is active
+  if (isFirebaseConfigured() && auth && auth.currentUser) {
+    const user = auth.currentUser;
+    if (!user.email) {
+      return { success: false, error: 'Current user has no associated institutional email address.' };
+    }
+    try {
+      const credential = EmailAuthProvider.credential(user.email, cleanPass);
+      await reauthenticateWithCredential(user, credential);
+      return { success: true };
+    } catch (err) {
+      console.warn('[AttendEdge Auth] Re-authentication failed:', err.code);
+      return {
+        success: false,
+        error: err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential'
+          ? 'Incorrect faculty password. Schedule modification cancelled.'
+          : err.code === 'auth/too-many-requests'
+          ? 'Too many failed verification attempts. Please wait before retrying.'
+          : mapAuthError(err)
+      };
+    }
+  }
+
+  // 2. Offline / Local Demo Mode
+  const cur = getCurrentUser();
+  if (cur && cur.isDemo) {
+    if (cleanPass === 'demo123') {
+      return { success: true };
+    }
+    return {
+      success: false,
+      error: 'Incorrect demo password. (Use "demo123" to authorize changes in demo sandbox).'
+    };
+  }
+
+  return {
+    success: false,
+    error: 'No active authenticated faculty session found.'
+  };
 }
 
 /**

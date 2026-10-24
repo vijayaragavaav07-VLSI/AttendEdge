@@ -4,6 +4,8 @@
   "private": true,
   "description": "AttendEdge — Real-time FPGA & IoT Smart Attendance Verification System",
   "scripts": {
+    "dev": "npm --prefix web-app run dev",
+    "start": "npm --prefix web-app run dev",
     "build": "npm --prefix web-app run build",
     "test": "npm --prefix web-app run test"
   }
