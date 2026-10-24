@@ -800,8 +800,13 @@ export const FirestoreService = {
       clearConnectionError();
       return data;
     } catch (err) {
-      console.error('[AttendEdge] saveDayScheduleOverride error:', err);
-      throw err;
+      const message = err.message === 'Failed to fetch'
+        ? 'Network error: Unable to contact server to save schedule override. Please check your internet connection.'
+        : err.message || 'Error occurred while saving schedule override.';
+      const enrichedErr = new Error(message);
+      enrichedErr.code = err.code || 'functions/internal';
+      console.error('[AttendEdge] saveDayScheduleOverride error:', enrichedErr);
+      throw enrichedErr;
     }
   },
 
@@ -847,8 +852,13 @@ export const FirestoreService = {
       clearConnectionError();
       return data;
     } catch (err) {
-      console.error('[AttendEdge] resetDayScheduleOverride error:', err);
-      throw err;
+      const message = err.message === 'Failed to fetch'
+        ? 'Network error: Unable to contact server to reset schedule override. Please check your internet connection.'
+        : err.message || 'Error occurred while resetting schedule override.';
+      const enrichedErr = new Error(message);
+      enrichedErr.code = err.code || 'functions/internal';
+      console.error('[AttendEdge] resetDayScheduleOverride error:', enrichedErr);
+      throw enrichedErr;
     }
   },
 

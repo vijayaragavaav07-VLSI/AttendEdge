@@ -1,7 +1,7 @@
 import { attendanceService } from './services/attendanceService.js';
 import { getCurrentUser, signInFaculty, signOutFaculty, subscribeAuth, startDemoSession, sendFacultyPasswordReset, reauthenticateFaculty } from './firebase/auth.js';
 import { isFirebaseConfigured } from './firebase/config.js';
-import { getConnectionState, CONNECTION_STATES, FirestoreService } from './firebase/firestoreService.js';
+import { getConnectionState, CONNECTION_STATES, FirestoreService, isCloudSyncReady } from './firebase/firestoreService.js';
 import { serialService } from './services/serialService.js';
 import { FSM_STATES, FSM_STATE_NAMES, STATUS_CODES } from './logic/attendanceFSM.js';
 import { D, toSec, hms, t12, pctText, exportCSV, exportPDF, printReport } from './reports/reportGenerator.js';
@@ -1881,9 +1881,39 @@ const FORMS = {
     const submitBtn = $('#btnSubmitSchedChange');
 
     if (errEl) errEl.textContent = '';
+
+    // 1. Client-Side Input Validation
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      if (errEl) errEl.textContent = 'Please select a valid date in YYYY-MM-DD format.';
+      return;
+    }
+    const cleanStatus = String(status || '').trim();
+    if (!cleanStatus || (!cleanStatus.toLowerCase().includes('work') && !cleanStatus.toLowerCase().includes('non'))) {
+      if (errEl) errEl.textContent = 'Please specify status as "Working Day" or "Non-working Day".';
+      return;
+    }
+    const cleanReason = String(reason || '').trim();
+    if (!cleanReason || cleanReason.length < 2) {
+      if (errEl) errEl.textContent = 'A specific reason is required (e.g. "Emergency closure", "College sports day").';
+      return;
+    }
+    if (!pass) {
+      if (errEl) errEl.textContent = 'Password is required to confirm schedule changes.';
+      return;
+    }
+
+    // 2. Production Firebase Readiness Check (Never falsely report saved)
+    const isDemo = Boolean(UI.currentUser && UI.currentUser.isDemo);
+    if (!isDemo && !isCloudSyncReady()) {
+      const msg = 'Firebase cloud sync is not ready or unauthenticated. Please verify your connection before modifying schedules.';
+      if (errEl) errEl.textContent = msg;
+      toast(msg, 'bad');
+      return;
+    }
+
     if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Verifying Password...'; }
 
-    // 1. Faculty Re-authentication
+    // 3. Faculty Re-authentication
     const authRes = await reauthenticateFaculty(pass);
     f.elements.facultyPassword.value = ''; // Never retain password
 
@@ -1894,15 +1924,15 @@ const FORMS = {
       return;
     }
 
-    // 2. Persist to Backend / Local State
+    // 4. Persist to Backend / Local State
     try {
       if (isCloudSyncReady()) {
-        submitBtn.textContent = 'Saving to Firestore...';
-        await FirestoreService.saveDayScheduleOverride({ date, status, reason });
+        if (submitBtn) submitBtn.textContent = 'Saving to Firestore...';
+        await FirestoreService.saveDayScheduleOverride({ date, status: cleanStatus, reason: cleanReason });
       }
       attendanceService.setScheduleOverride(date, {
-        status,
-        reason,
+        status: cleanStatus,
+        reason: cleanReason,
         updatedBy: UI.currentUser.email || UI.currentUser.displayName || 'Faculty',
         updatedAt: new Date().toISOString()
       });
@@ -1910,7 +1940,7 @@ const FORMS = {
       closeModal();
       UI.weekly.targetReason = '';
       render();
-      toast(`Schedule override saved: ${date} is now marked as ${status}.`, 'ok');
+      toast(`Schedule override saved: ${date} is now marked as ${cleanStatus}.`, 'ok');
     } catch (err) {
       if (errEl) errEl.textContent = err.message;
       if (submitBtn) { submitBtn.disabled = false; submitBtn.innerHTML = `${ic('save', 16)} Verify Password & Apply`; }
@@ -1923,6 +1953,19 @@ const FORMS = {
     const errEl = $('#confResetErr');
 
     if (errEl) errEl.textContent = '';
+
+    if (!pass) {
+      if (errEl) errEl.textContent = 'Password is required to confirm schedule reset.';
+      return;
+    }
+
+    const isDemo = Boolean(UI.currentUser && UI.currentUser.isDemo);
+    if (!isDemo && !isCloudSyncReady()) {
+      const msg = 'Firebase cloud sync is not ready or unauthenticated. Please verify your connection before resetting schedules.';
+      if (errEl) errEl.textContent = msg;
+      toast(msg, 'bad');
+      return;
+    }
 
     const authRes = await reauthenticateFaculty(pass);
     f.elements.facultyPassword.value = '';

@@ -89,7 +89,7 @@ Open your browser to: **`http://localhost:5173`**
 ```bash
 npm test
 ```
-Executes all 111 test scenarios across 7 test suites via Vitest.
+Executes all 124 test scenarios across 7 test suites via Vitest.
 
 ### Production Build
 ```bash

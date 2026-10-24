@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // Node/Vitest localStorage & window polyfill
 const store = new Map();
@@ -34,7 +34,9 @@ import {
   signOutFaculty,
   getCurrentUser
 } from '../src/firebase/auth.js';
-import { FirestoreService } from '../src/firebase/firestoreService.js';
+import { FirestoreService, isCloudSyncReady } from '../src/firebase/firestoreService.js';
+import * as firestoreModule from '../src/firebase/firestoreService.js';
+import { auth } from '../src/firebase/config.js';
 import { D, pctText } from '../src/reports/reportGenerator.js';
 
 /**
@@ -607,4 +609,239 @@ describe('AttendEdge — Faculty-Controlled Working Day Management Test Suite', 
       expect(res.error).toContain('Password is required');
     });
   });
+
+  describe('16. isCloudSyncReady Readiness Helper Verification', () => {
+    it('isCloudSyncReady is an exported function and returns boolean', () => {
+      expect(typeof isCloudSyncReady).toBe('function');
+      const ready = isCloudSyncReady();
+      expect(typeof ready).toBe('boolean');
+    });
+
+    it('returns false when unauthenticated or Firebase is not connected', () => {
+      // In Node test environment without real user login
+      expect(isCloudSyncReady()).toBe(false);
+    });
+  });
+
+  describe('17. Uninitialized Firebase Connection Handling', () => {
+    it('saveDayScheduleOverride throws unauthenticated error when isCloudSyncReady is false', async () => {
+      await expect(FirestoreService.saveDayScheduleOverride({
+        date: '2026-10-26',
+        status: 'Working Day',
+        reason: 'Test reason'
+      })).rejects.toThrow('Cannot save schedule override: Firebase is not authenticated.');
+    });
+
+    it('resetDayScheduleOverride throws unauthenticated error when isCloudSyncReady is false', async () => {
+      await expect(FirestoreService.resetDayScheduleOverride('2026-10-26'))
+        .rejects.toThrow('Cannot reset schedule override: Firebase is not authenticated.');
+    });
+
+    it('getDayScheduleOverrides safely returns empty object when isCloudSyncReady is false', async () => {
+      const overrides = await FirestoreService.getDayScheduleOverrides();
+      expect(overrides).toEqual({});
+    });
+
+    it('getScheduleAuditHistory safely returns empty array when isCloudSyncReady is false', async () => {
+      const history = await FirestoreService.getScheduleAuditHistory();
+      expect(history).toEqual([]);
+    });
+  });
+
+  describe('18. Netlify manageDaySchedule Endpoint Authentication & Authorization', () => {
+    it('rejects requests missing the Authorization header with 401', async () => {
+      const res = await netlifyManageDaySchedule({
+        httpMethod: 'POST',
+        headers: {},
+        body: JSON.stringify({ date: '2026-10-26', status: 'Working Day', reason: 'Holiday class' })
+      }, {}, { services: { db: mockDb, auth: {} } });
+
+      expect(res.statusCode).toBe(401);
+      const body = JSON.parse(res.body);
+      expect(body.success).toBe(false);
+      expect(body.code).toBe('functions/unauthenticated');
+    });
+
+    it('rejects requests with an invalid Bearer token with 401', async () => {
+      const mockAuthService = {
+        verifyIdToken: vi.fn().mockRejectedValue(new Error('Invalid token'))
+      };
+
+      const res = await netlifyManageDaySchedule({
+        httpMethod: 'POST',
+        headers: { authorization: 'Bearer invalid.token.xyz' },
+        body: JSON.stringify({ date: '2026-10-26', status: 'Working Day', reason: 'Holiday class' })
+      }, {}, { services: { db: mockDb, auth: mockAuthService } });
+
+      expect(res.statusCode).toBe(401);
+      const body = JSON.parse(res.body);
+      expect(body.success).toBe(false);
+      expect(body.message).toContain('Invalid, expired, or revoked');
+    });
+
+    it('rejects callers without faculty role with 403', async () => {
+      const studentToken = { uid: 'student-999', email: 'student@example.edu' };
+      const mockAuthService = {
+        verifyIdToken: vi.fn().mockResolvedValue(studentToken)
+      };
+
+      const res = await netlifyManageDaySchedule({
+        httpMethod: 'POST',
+        headers: { authorization: 'Bearer student.token' },
+        body: JSON.stringify({ date: '2026-10-26', status: 'Working Day', reason: 'Holiday class' })
+      }, {}, { services: { db: mockDb, auth: mockAuthService } });
+
+      expect(res.statusCode).toBe(403);
+      const body = JSON.parse(res.body);
+      expect(body.success).toBe(false);
+      expect(body.code).toBe('functions/permission-denied');
+    });
+
+    it('accepts valid faculty token and saves override with 200', async () => {
+      const facultyToken = {
+        uid: 'faculty-001',
+        email: 'faculty@university.edu',
+        role: 'faculty',
+        faculty: true
+      };
+      const mockAuthService = {
+        verifyIdToken: vi.fn().mockResolvedValue(facultyToken)
+      };
+
+      const res = await netlifyManageDaySchedule({
+        httpMethod: 'POST',
+        headers: { authorization: 'Bearer faculty.valid.token' },
+        body: JSON.stringify({
+          date: '2026-10-28',
+          status: 'Non-working Day',
+          reason: 'Campus Convocation'
+        })
+      }, {}, { services: { db: mockDb, auth: mockAuthService } });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.success).toBe(true);
+      expect(body.override.status).toBe('Non-working Day');
+      expect(body.override.isWorking).toBe(false);
+      expect(body.override.reason).toBe('Campus Convocation');
+
+      // Verify persistence in mock database
+      const stored = mockDb.get('dayScheduleOverrides', '2026-10-28');
+      expect(stored.exists).toBe(true);
+      expect(stored.data().status).toBe('Non-working Day');
+      expect(stored.data().isWorking).toBe(false);
+    });
+  });
+
+  describe('19. Network and Backend Failure Error Diagnostics', () => {
+    let originalUser;
+    beforeEach(() => {
+      originalUser = auth?.currentUser;
+      if (auth) {
+        Object.defineProperty(auth, 'currentUser', {
+          value: {
+            uid: 'faculty-001',
+            email: 'faculty@university.edu',
+            getIdToken: async () => 'mock-id-token'
+          },
+          configurable: true,
+          writable: true
+        });
+      }
+    });
+
+    afterEach(() => {
+      if (auth) {
+        Object.defineProperty(auth, 'currentUser', {
+          value: originalUser,
+          configurable: true,
+          writable: true
+        });
+      }
+    });
+
+    it('maps network fetch failures into meaningful error messages in saveDayScheduleOverride', async () => {
+      // Mock global fetch to simulate network loss
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+
+      try {
+        await FirestoreService.saveDayScheduleOverride({
+          date: '2026-10-26',
+          status: 'Non-working Day',
+          reason: 'Emergency weather closure'
+        });
+        expect.fail('Should have thrown an error');
+      } catch (err) {
+        expect(err.message).toContain('Network error: Unable to contact server');
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('preserves specific server rejection error messages in saveDayScheduleOverride', async () => {
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        json: async () => ({
+          success: false,
+          code: 'functions/invalid-argument',
+          message: 'A specific reason is required when changing the day status.'
+        })
+      });
+
+      try {
+        await FirestoreService.saveDayScheduleOverride({
+          date: '2026-10-26',
+          status: 'Non-working Day',
+          reason: 'X'
+        });
+        expect.fail('Should have thrown an error');
+      } catch (err) {
+        expect(err.message).toBe('A specific reason is required when changing the day status.');
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+  });
+
+  describe('20. End-to-End Schedule Save, Audit Trail, and Local State Synchronization', () => {
+    it('persists override, records audit entry with action, and synchronizes with attendanceService', async () => {
+      const testDate = '2026-10-29';
+      const testReason = 'Special Department Symposium';
+
+      // 1. Backend save
+      const saveRes = await verifyAndSaveScheduleOverride(mockDb, {
+        auth: facultyAuth,
+        data: {
+          date: testDate,
+          status: 'Working Day',
+          reason: testReason
+        },
+        now: new Date('2026-10-24T12:00:00Z')
+      });
+
+      expect(saveRes.success).toBe(true);
+
+      // 2. Audit Trail verification
+      expect(saveRes.audit.action).toBe('OVERRIDE_DAY_STATUS');
+      expect(saveRes.audit.reason).toBe(testReason);
+      expect(saveRes.audit.updatedBy).toBe('instructor@university.edu');
+
+      // 3. Local attendanceService state synchronization
+      attendanceService.setScheduleOverride(testDate, {
+        status: 'Working Day',
+        reason: testReason,
+        updatedBy: 'instructor@university.edu'
+      });
+
+      const info = attendanceService.getDayScheduleInfo(testDate);
+      expect(info.isWorking).toBe(true);
+      expect(info.isOverride).toBe(true);
+      expect(info.reason).toBe(testReason);
+    });
+  });
 });
+

@@ -108,7 +108,7 @@ c:/attadence/
     │   ├── components/      # UI icons & logo components
     │   ├── styles/          # AttendEdge responsive CSS design system
     │   └── main.js          # Main UI routing, dashboard & Working Day Management
-    └── tests/               # 111 Vitest unit, security, workflow, statistics & schedule management tests
+    └── tests/               # 124 Vitest unit, security, workflow, statistics & schedule management tests
 ```
 
 ---
@@ -160,7 +160,7 @@ Open **`http://localhost:5173`** in your browser.
 ```bash
 npm test
 ```
-Executes all 111 unit, security, schedule override, and transaction verification tests via Vitest.
+Executes all 124 unit, security, schedule override, and transaction verification tests via Vitest.
 
 ### Build Production Bundle
 ```bash
