@@ -101,9 +101,11 @@ export async function getEffectiveDateSchedule(firestoreDb, dateStr, settings = 
     if (overrideDoc && overrideDoc.exists) {
       const data = overrideDoc.data() || {};
       const statusStr = String(data.status || '').trim();
-      const isWorking = data.isWorking !== undefined
-        ? Boolean(data.isWorking)
-        : (statusStr.toLowerCase() === 'working' || statusStr.toLowerCase() === 'working day');
+      const isWorking = data.isWorkingDay !== undefined
+        ? Boolean(data.isWorkingDay)
+        : (data.isWorking !== undefined
+          ? Boolean(data.isWorking)
+          : (statusStr.toLowerCase() === 'working' || statusStr.toLowerCase() === 'working day'));
       return {
         date: dateStr,
         isWorking,

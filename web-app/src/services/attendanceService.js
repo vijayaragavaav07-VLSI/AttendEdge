@@ -233,7 +233,13 @@ export class AttendanceService {
       // Sync faculty day schedule overrides
       const remoteOverrides = await FirestoreService.getDayScheduleOverrides();
       if (remoteOverrides && typeof remoteOverrides === 'object') {
-        this.state.scheduleOverrides = Object.assign(this.state.scheduleOverrides || {}, remoteOverrides);
+        const activeOverrides = {};
+        for (const [dateKey, val] of Object.entries(remoteOverrides)) {
+          if (val && !val.isDeleted && val.status !== 'Default') {
+            activeOverrides[dateKey] = val;
+          }
+        }
+        this.state.scheduleOverrides = activeOverrides;
       }
 
       this.saveLocal();
@@ -292,17 +298,20 @@ export class AttendanceService {
   getDayScheduleInfo(date) {
     // 1. Faculty schedule override takes precedence
     const override = this.state.scheduleOverrides && this.state.scheduleOverrides[date];
-    if (override && override.status) {
-      const isWorking = override.isWorking !== undefined
-        ? Boolean(override.isWorking)
-        : (!String(override.status).toLowerCase().includes('non'));
+    if (override && override.status && !override.isDeleted && override.status !== 'Default') {
+      const isWorking = override.isWorkingDay !== undefined
+        ? Boolean(override.isWorkingDay)
+        : (override.isWorking !== undefined
+          ? Boolean(override.isWorking)
+          : (!String(override.status).toLowerCase().includes('non')));
       return {
         date,
         isWorking,
+        isWorkingDay: isWorking,
         status: isWorking ? 'Working Day' : 'Non-working Day',
         isOverride: true,
         reason: override.reason || (isWorking ? 'Faculty schedule override' : 'Emergency holiday / closure override'),
-        updatedBy: override.updatedBy,
+        updatedBy: override.updatedByEmail || override.updatedBy,
         updatedAt: override.updatedAt
       };
     }
@@ -754,15 +763,18 @@ export class AttendanceService {
     return { ok: true, removed: count };
   }
 
-  setScheduleOverride(date, { status, reason, updatedBy, updatedAt }) {
+  setScheduleOverride(date, { status, reason, updatedBy, updatedAt, isWorkingDay }) {
     const cleanDate = String(date).trim();
-    const isWorking = !String(status).toLowerCase().includes('non');
+    const isWorking = isWorkingDay !== undefined
+      ? Boolean(isWorkingDay)
+      : !String(status).toLowerCase().includes('non');
     const normalizedStatus = isWorking ? 'Working Day' : 'Non-working Day';
     this.state.scheduleOverrides = this.state.scheduleOverrides || {};
     const override = {
       date: cleanDate,
       status: normalizedStatus,
       isWorking,
+      isWorkingDay: isWorking,
       reason: (reason || '').trim(),
       updatedBy: updatedBy || 'Faculty',
       updatedAt: updatedAt || new Date().toISOString()

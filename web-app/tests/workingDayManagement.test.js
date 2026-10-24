@@ -114,7 +114,10 @@ class MockFirestore {
         return this.get(colPath, docId);
       },
       set: (docRef, data, options) => {
-        writes.push({ docRef, data, options });
+        writes.push({ type: 'set', docRef, data, options });
+      },
+      delete: (docRef) => {
+        writes.push({ type: 'delete', docRef });
       }
     };
 
@@ -123,7 +126,11 @@ class MockFirestore {
       const parts = w.docRef.path.split('/');
       const docId = parts.pop();
       const colPath = parts.join('/');
-      this.set(colPath, docId, w.data, w.options);
+      if (w.type === 'delete') {
+        this.delete(colPath, docId);
+      } else {
+        this.set(colPath, docId, w.data, w.options);
+      }
     }
     return result;
   }
@@ -841,6 +848,80 @@ describe('AttendEdge — Faculty-Controlled Working Day Management Test Suite', 
       expect(info.isWorking).toBe(true);
       expect(info.isOverride).toBe(true);
       expect(info.reason).toBe(testReason);
+    });
+  });
+
+  describe('21. Deterministic Document IDs, Repeat Updates, and Schema Compliance', () => {
+    it('uses deterministic document ID dayScheduleOverrides/{YYYY-MM-DD} and overwrites on repeat updates', async () => {
+      const targetDate = '2026-10-24';
+
+      // 1. First update: Working Day -> Non-working Day
+      const firstSave = await verifyAndSaveScheduleOverride(mockDb, {
+        auth: facultyAuth,
+        data: {
+          date: targetDate,
+          status: 'Non-working Day',
+          reason: 'Emergency weather holiday'
+        },
+        now: new Date('2026-10-24T06:00:00Z')
+      });
+
+      expect(firstSave.success).toBe(true);
+      const firstDoc = mockDb.get('dayScheduleOverrides', targetDate);
+      expect(firstDoc.exists).toBe(true);
+      expect(firstDoc.data().date).toBe(targetDate);
+      expect(firstDoc.data().isWorkingDay).toBe(false);
+      expect(firstDoc.data().isWorking).toBe(false);
+      expect(firstDoc.data().reason).toBe('Emergency weather holiday');
+      expect(firstDoc.data().updatedBy).toBe('fac-001'); // faculty UID
+      expect(firstDoc.data().updatedByEmail).toBe('instructor@university.edu');
+
+      // 2. Repeat update on same date: Non-working Day -> Working Day
+      const secondSave = await verifyAndSaveScheduleOverride(mockDb, {
+        auth: facultyAuth,
+        data: {
+          date: targetDate,
+          status: 'Working Day',
+          reason: 'Weather cleared, special class resumed'
+        },
+        now: new Date('2026-10-24T07:00:00Z')
+      });
+
+      expect(secondSave.success).toBe(true);
+      const secondDoc = mockDb.get('dayScheduleOverrides', targetDate);
+      expect(secondDoc.exists).toBe(true);
+      expect(secondDoc.data().date).toBe(targetDate);
+      expect(secondDoc.data().isWorkingDay).toBe(true);
+      expect(secondDoc.data().isWorking).toBe(true);
+      expect(secondDoc.data().reason).toBe('Weather cleared, special class resumed');
+      expect(secondDoc.data().updatedBy).toBe('fac-001');
+
+      // Verify no duplicates were created - document ID is strictly targetDate
+      expect(secondDoc.id).toBe(targetDate);
+    });
+
+    it('atomic reset removes override document and records RESET_TO_DEFAULT in audit history', async () => {
+      const targetDate = '2026-10-24';
+
+      // Seed an override
+      await verifyAndSaveScheduleOverride(mockDb, {
+        auth: facultyAuth,
+        data: { date: targetDate, status: 'Non-working Day', reason: 'Holiday' }
+      });
+      expect(mockDb.get('dayScheduleOverrides', targetDate).exists).toBe(true);
+
+      // Reset to default
+      const resetRes = await verifyAndSaveScheduleOverride(mockDb, {
+        auth: facultyAuth,
+        data: { date: targetDate, action: 'resetOverride', reason: 'Reverting to regular schedule' },
+        now: new Date('2026-10-24T08:00:00Z')
+      });
+
+      expect(resetRes.success).toBe(true);
+      expect(resetRes.reset).toBe(true);
+
+      // Document is removed
+      expect(mockDb.get('dayScheduleOverrides', targetDate).exists).toBe(false);
     });
   });
 });

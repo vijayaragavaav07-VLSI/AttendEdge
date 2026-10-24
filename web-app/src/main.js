@@ -1842,7 +1842,7 @@ const ACTIONS = {
         <td>${badge(h.isWorking ? 'ok' : 'muted', h.status || 'Override')}</td>
         <td>${esc(h.reason || '—')}</td>
         <td>${esc(h.updatedBy || 'Faculty')}</td>
-        <td class="small muted">${h.timestamp ? new Date(h.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '—'}</td>
+        <td class="small muted">${h.timestamp ? (typeof h.timestamp?.toDate === 'function' ? h.timestamp.toDate() : new Date(h.timestamp)).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '—'}</td>
       </tr>
     `).join('') : `<tr><td colspan="5" class="empty">No schedule override modifications recorded yet.</td></tr>`;
 
@@ -1929,13 +1929,21 @@ const FORMS = {
       if (isCloudSyncReady()) {
         if (submitBtn) submitBtn.textContent = 'Saving to Firestore...';
         await FirestoreService.saveDayScheduleOverride({ date, status: cleanStatus, reason: cleanReason });
+        attendanceService.setScheduleOverride(date, {
+          status: cleanStatus,
+          reason: cleanReason,
+          updatedBy: UI.currentUser.email || UI.currentUser.displayName || 'Faculty',
+          updatedAt: new Date().toISOString()
+        });
+        await attendanceService.syncWithFirestore();
+      } else {
+        attendanceService.setScheduleOverride(date, {
+          status: cleanStatus,
+          reason: cleanReason,
+          updatedBy: UI.currentUser.email || UI.currentUser.displayName || 'Faculty',
+          updatedAt: new Date().toISOString()
+        });
       }
-      attendanceService.setScheduleOverride(date, {
-        status: cleanStatus,
-        reason: cleanReason,
-        updatedBy: UI.currentUser.email || UI.currentUser.displayName || 'Faculty',
-        updatedAt: new Date().toISOString()
-      });
 
       closeModal();
       UI.weekly.targetReason = '';
@@ -1979,8 +1987,11 @@ const FORMS = {
     try {
       if (isCloudSyncReady()) {
         await FirestoreService.resetDayScheduleOverride(date, 'Reverted to default timetable');
+        attendanceService.removeScheduleOverride(date, 'Reverted to default timetable', UI.currentUser.email || 'Faculty');
+        await attendanceService.syncWithFirestore();
+      } else {
+        attendanceService.removeScheduleOverride(date, 'Reverted to default timetable', UI.currentUser.email || 'Faculty');
       }
-      attendanceService.removeScheduleOverride(date, 'Reverted to default timetable', UI.currentUser.email || 'Faculty');
       closeModal();
       render();
       toast(`Schedule for ${date} reverted to default institutional timetable.`, 'info');

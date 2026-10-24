@@ -64,28 +64,53 @@ export async function verifyAndSaveScheduleOverride(firestoreDb, {
     const existing = await overrideRef.get();
     const prevStatus = existing.exists ? existing.data()?.status : 'Default';
 
-    // Delete override document if it exists
-    if (existing.exists) {
-      if (typeof overrideRef.delete === 'function') {
-        await overrideRef.delete();
-      } else {
-        await overrideRef.set({ isDeleted: true, status: 'Default' }, { merge: true });
-      }
-    }
-
     // Append to audit history
     const auditId = `audit-${cleanDate}-${Date.now()}`;
+    const auditRef = firestoreDb.collection('scheduleAuditHistory').doc(auditId);
+    const facultyEmail = (auth.token && auth.token.email) || null;
+    const facultyUid = auth.uid;
+
     const auditPayload = {
       date: cleanDate,
       action: 'RESET_TO_DEFAULT',
       previousStatus: prevStatus,
       status: 'Default Timetable',
       reason: (data.reason || 'Reset to default institutional timetable').trim(),
-      updatedBy: (auth.token && auth.token.email) || auth.uid,
-      updatedByUid: auth.uid,
+      updatedBy: facultyEmail || facultyUid,
+      updatedByEmail: facultyEmail,
+      updatedByUid: facultyUid,
       timestamp: now.toISOString()
     };
-    await firestoreDb.collection('scheduleAuditHistory').doc(auditId).set(auditPayload);
+
+    // Atomic execution for override deletion and audit history recording
+    if (typeof firestoreDb.runTransaction === 'function') {
+      await firestoreDb.runTransaction(async (transaction) => {
+        if (typeof transaction.delete === 'function') {
+          transaction.delete(overrideRef);
+        } else {
+          transaction.set(overrideRef, { isDeleted: true, status: 'Default' }, { merge: true });
+        }
+        transaction.set(auditRef, auditPayload);
+      });
+    } else if (typeof firestoreDb.batch === 'function') {
+      const batch = firestoreDb.batch();
+      if (typeof batch.delete === 'function') {
+        batch.delete(overrideRef);
+      } else {
+        batch.set(overrideRef, { isDeleted: true, status: 'Default' }, { merge: true });
+      }
+      batch.set(auditRef, auditPayload);
+      await batch.commit();
+    } else {
+      if (existing.exists) {
+        if (typeof overrideRef.delete === 'function') {
+          await overrideRef.delete();
+        } else {
+          await overrideRef.set({ isDeleted: true, status: 'Default' }, { merge: true });
+        }
+      }
+      await auditRef.set(auditPayload);
+    }
 
     return {
       success: true,
@@ -129,33 +154,53 @@ export async function verifyAndSaveScheduleOverride(firestoreDb, {
   const existingDoc = await overrideRef.get();
   const prevData = existingDoc.exists ? existingDoc.data() : null;
 
+  const facultyEmail = (auth.token && auth.token.email) || null;
+  const facultyUid = auth.uid;
+
   const overridePayload = {
     date: cleanDate,
     status: normalizedStatus,
     isWorking,
+    isWorkingDay: isWorking,
     reason: rawReason,
-    updatedBy: (auth.token && auth.token.email) || auth.uid,
-    updatedByUid: auth.uid,
+    updatedBy: facultyUid,
+    updatedByEmail: facultyEmail,
+    updatedByUid: facultyUid,
     updatedAt: now.toISOString()
   };
 
-  await overrideRef.set(overridePayload);
-
   // 6. Record Immutable Audit History
   const auditId = `audit-${cleanDate}-${Date.now()}`;
+  const auditRef = firestoreDb.collection('scheduleAuditHistory').doc(auditId);
   const auditPayload = {
     date: cleanDate,
     status: normalizedStatus,
     isWorking,
+    isWorkingDay: isWorking,
     previousStatus: prevData ? prevData.status : 'Default',
     reason: rawReason,
-    updatedBy: (auth.token && auth.token.email) || auth.uid,
-    updatedByUid: auth.uid,
+    updatedBy: facultyEmail || facultyUid,
+    updatedByEmail: facultyEmail,
+    updatedByUid: facultyUid,
     timestamp: now.toISOString(),
     action: 'OVERRIDE_DAY_STATUS'
   };
 
-  await firestoreDb.collection('scheduleAuditHistory').doc(auditId).set(auditPayload);
+  // 7. Atomic transaction / batch write for consistency
+  if (typeof firestoreDb.runTransaction === 'function') {
+    await firestoreDb.runTransaction(async (transaction) => {
+      transaction.set(overrideRef, overridePayload);
+      transaction.set(auditRef, auditPayload);
+    });
+  } else if (typeof firestoreDb.batch === 'function') {
+    const batch = firestoreDb.batch();
+    batch.set(overrideRef, overridePayload);
+    batch.set(auditRef, auditPayload);
+    await batch.commit();
+  } else {
+    await overrideRef.set(overridePayload);
+    await auditRef.set(auditPayload);
+  }
 
   return {
     success: true,
